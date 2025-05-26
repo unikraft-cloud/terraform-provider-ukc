@@ -22,6 +22,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
+	ukc "sdk.kraft.cloud"
 	"sdk.kraft.cloud/instances"
 	"sdk.kraft.cloud/services"
 )
@@ -240,16 +241,16 @@ func (r *InstanceResource) Configure(ctx context.Context, req resource.Configure
 		return
 	}
 
-	client, ok := req.ProviderData.(instances.InstancesService)
+	client, ok := req.ProviderData.(ukc.KraftCloud)
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Resource Configure Type",
-			fmt.Sprintf("Expected instances.InstancesServices, got: %T. Please report this issue to the provider developers.", req.ProviderData),
+			fmt.Sprintf("Expected KraftCloud, got: %T. Please report this issue to the provider developers.", req.ProviderData),
 		)
 		return
 	}
 
-	r.client = client
+	r.client = client.Instances()
 }
 
 // Create implements resource.Resource.
