@@ -1,6 +1,6 @@
 module github.com/unikraft-cloud/terraform-provider-unikraft-cloud
 
-go 1.22
+go 1.22.0
 
 require sdk.kraft.cloud v0.5.10-0.20240723104228-555a014860c8
 
@@ -24,7 +24,7 @@ require (
 	github.com/asaskevich/govalidator v0.0.0-20210307081110-f21760c49a8d // indirect
 	github.com/bgentry/speakeasy v0.1.0 // indirect
 	github.com/bmatcuk/doublestar/v4 v4.6.1 // indirect
-	github.com/cloudflare/circl v1.3.7 // indirect
+	github.com/cloudflare/circl v1.6.1 // indirect
 	github.com/containerd/stargz-snapshotter/estargz v0.14.3 // indirect
 	github.com/docker/cli v24.0.0+incompatible // indirect
 	github.com/docker/distribution v2.8.2+incompatible // indirect
