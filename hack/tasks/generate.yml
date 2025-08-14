@@ -1,0 +1,35 @@
+version: '3'
+
+tasks:
+  provider-spec:
+    desc: "Generate Terraform provider specification from OpenAPI"
+    cmds:
+      - |
+        tfplugingen-openapi generate \
+          --config hack/generator_config.yml \
+          --output .release/provider_code_spec.json \
+          temp/platform.json
+    sources:
+      - temp/platform.json
+      - hack/generator_config.yml
+    generates:
+      - .release/provider_code_spec.json
+
+  go-code:
+    desc: "Generate Go code from provider specification"
+    deps: [provider-spec]
+    cmds:
+      - |
+        tfplugingen-framework generate resources \
+          --input ./release/provider_code_spec.json \
+          --output internal/provider/resources
+      - |
+        tfplugingen-framework generate data-sources \
+          --input ./releaseprovider_code_spec.json \
+          --output internal/provider/datasources
+      # - |
+      #   tfplugingen-framework generate provider \
+      #     --input temp/provider_code_spec.json \
+      #     --output internal/provider \
+      #     --package provider
+---

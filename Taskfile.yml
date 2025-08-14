@@ -1,0 +1,17 @@
+version: '3'
+
+dotenv: ['.env']
+
+includes:
+  gen: ./hack/tasks/generate.yml
+  # test: ./hack/tasks/testing.yml
+
+tasks:
+  install-tools:
+    desc: "Install required tools and dependencies"
+    cmds:
+      - go install github.com/hashicorp/terraform-plugin-codegen-openapi/cmd/tfplugingen-openapi@latest
+      - go install github.com/hashicorp/terraform-plugin-codegen-framework/cmd/tfplugingen-framework@latest
+    status:
+      - command -v tfplugingen-openapi
+      - command -v tfplugingen-framework
