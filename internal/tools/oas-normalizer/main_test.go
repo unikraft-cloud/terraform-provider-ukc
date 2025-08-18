@@ -152,7 +152,7 @@ func TestFlattenOneOf(t *testing.T) {
 		t.Error("Expected name property")
 	}
 
-	if _, hasId := props["id"]; !hasId {
+	if _, hasID := props["id"]; !hasID {
 		t.Error("Expected id property")
 	}
 }
@@ -223,11 +223,13 @@ func TestDeepCopy(t *testing.T) {
 
 	copied := deepCopy(original).(map[string]any)
 
+	// Modify the copy
 	copied["string"] = "modified"
 	nestedCopy := copied["nested"].(map[string]any)
 	arrayCopy := nestedCopy["array"].([]any)
 	arrayCopy[0] = 99
 
+	// Original should be unchanged
 	if original["string"] != "value" {
 		t.Error("Original string was modified")
 	}
@@ -240,5 +242,5 @@ func TestDeepCopy(t *testing.T) {
 }
 
 func TestFixOpenAPISpec(t *testing.T) {
-	//TODO
+	// TODO
 }

@@ -39,7 +39,7 @@ func main() {
 		log.Fatalf("Error marshaling JSON: %v", err)
 	}
 
-	if err := os.WriteFile(outputFile, output, 0644); err != nil {
+	if err := os.WriteFile(outputFile, output, 0o644); err != nil {
 		log.Fatalf("Error writing output file: %v", err)
 	}
 
@@ -140,7 +140,6 @@ func flattenAllOf(allOf any) map[string]any {
 		return result
 	}
 
-	// Initialize properties map
 	result["properties"] = make(map[string]any)
 
 	for _, item := range allOfSlice {
@@ -174,12 +173,10 @@ func flattenAllOf(allOf any) map[string]any {
 		}
 	}
 
-	// Clean up empty properties
 	if props := result["properties"].(map[string]any); len(props) == 0 {
 		delete(result, "properties")
 	}
 
-	// Ensure we have a type if we have properties
 	if _, hasType := result["type"]; !hasType {
 		if _, hasProps := result["properties"]; hasProps {
 			result["type"] = "object"
@@ -221,7 +218,6 @@ func flattenOneOf(oneOf any) map[string]any {
 		for key, value := range flattened {
 			switch key {
 			case "properties", "required", "title":
-				// Skip these as they're handled above
 			default:
 				result[key] = value
 			}
