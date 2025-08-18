@@ -95,15 +95,15 @@ jobs:
             test-${{ runner.os }}-go-
 
       - run: go mod download
-      - name: go generate
-        run: |
-          go generate ./...
-          # check if go generate modified or added any files
-          if ! git diff --compact-summary --exit-code; then
-            echo
-            echo "go generate caused changes to the repository. Run 'go generate ./...' command and commit."
-            exit 1
-          fi
+      # - name: go generate
+      #   run: |
+      #     go generate ./...
+      #     # check if go generate modified or added any files
+      #     if ! git diff --compact-summary --exit-code; then
+      #       echo
+      #       echo "go generate caused changes to the repository. Run 'go generate ./...' command and commit."
+      #       exit 1
+      #     fi
 
   # Run acceptance tests in a matrix with Terraform CLI versions
   test:

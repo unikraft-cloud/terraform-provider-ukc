@@ -241,6 +241,6 @@ func TestDeepCopy(t *testing.T) {
 	}
 }
 
-func TestFixOpenAPISpec(t *testing.T) {
-	// TODO
-}
+// func TestFixOpenAPISpec(t *testing.T) {
+// 	// TODO
+// }

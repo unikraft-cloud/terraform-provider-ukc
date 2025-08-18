@@ -18,7 +18,7 @@ go build -o openapi-fixer
 
 ## Why this exists
 
-terraform-plugin-codegen-openapi doesn't support allOf/oneOf constructs and don't handle "default" response codes properly. This tool preprocesses the OpenAPI spec to make it more generator-friendly without losing the structure.
+terraform-plugin-codegen-openapi doesn't support allOf/oneOf constructs and doesn't handle "default" response codes properly. This tool preprocesses the OpenAPI spec to make it more generator-friendly without losing the structure.
 
 ## Testing
 
