@@ -1,7 +1,7 @@
 // Copyright (c) Unikraft GmbH
 // SPDX-License-Identifier: MPL-2.0
 
-package provider
+package datasource
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	models "github.com/unikraft-cloud/terraform-provider-unikraft-cloud/internal/provider/model"
 
 	"sdk.kraft.cloud/instances"
 )
@@ -31,19 +32,19 @@ var _ datasource.DataSource = &InstanceDataSource{}
 type InstanceDataSourceModel struct {
 	UUID types.String `tfsdk:"uuid"`
 
-	Name              types.String `tfsdk:"name"`
-	FQDN              types.String `tfsdk:"fqdn"`
-	PrivateIP         types.String `tfsdk:"private_ip"`
-	PrivateFQDN       types.String `tfsdk:"private_fqdn"`
-	State             types.String `tfsdk:"state"`
-	CreatedAt         types.String `tfsdk:"created_at"`
-	Image             types.String `tfsdk:"image"`
-	MemoryMB          types.Int64  `tfsdk:"memory_mb"`
-	Args              types.List   `tfsdk:"args"`
-	Env               types.Map    `tfsdk:"env"`
-	ServiceGroup      *svcGrpModel `tfsdk:"service_group"`
-	NetworkInterfaces types.List   `tfsdk:"network_interfaces"`
-	BootTimeUS        types.Int64  `tfsdk:"boot_time_us"`
+	Name              types.String        `tfsdk:"name"`
+	FQDN              types.String        `tfsdk:"fqdn"`
+	PrivateIP         types.String        `tfsdk:"private_ip"`
+	PrivateFQDN       types.String        `tfsdk:"private_fqdn"`
+	State             types.String        `tfsdk:"state"`
+	CreatedAt         types.String        `tfsdk:"created_at"`
+	Image             types.String        `tfsdk:"image"`
+	MemoryMB          types.Int64         `tfsdk:"memory_mb"`
+	Args              types.List          `tfsdk:"args"`
+	Env               types.Map           `tfsdk:"env"`
+	ServiceGroup      *models.SvcGrpModel `tfsdk:"service_group"`
+	NetworkInterfaces types.List          `tfsdk:"network_interfaces"`
+	BootTimeUS        types.Int64         `tfsdk:"boot_time_us"`
 }
 
 // Metadata implements datasource.DataSource.
@@ -209,13 +210,13 @@ func (d *InstanceDataSource) Read(ctx context.Context, req datasource.ReadReques
 	resp.Diagnostics.Append(diags...)
 
 	if ins.ServiceGroup != nil {
-		data.ServiceGroup = &svcGrpModel{
+		data.ServiceGroup = &models.SvcGrpModel{
 			UUID:     types.StringValue(ins.ServiceGroup.UUID),
 			Name:     types.StringValue(ins.ServiceGroup.Name),
-			Services: make([]svcModel, len(ins.ServiceGroup.Domains)),
+			Services: make([]models.SvcModel, len(ins.ServiceGroup.Domains)),
 		}
 	} else {
-		data.ServiceGroup = &svcGrpModel{}
+		data.ServiceGroup = &models.SvcGrpModel{}
 	}
 
 	// TODO(craciunoiuc): Find out how this should be accessed now
@@ -228,14 +229,14 @@ func (d *InstanceDataSource) Read(ctx context.Context, req datasource.ReadReques
 	// 	resp.Diagnostics.Append(diags...)
 	// }
 
-	netwIfaces := make([]netwIfaceModel, len(ins.NetworkInterfaces))
+	netwIfaces := make([]models.NetwIfaceModel, len(ins.NetworkInterfaces))
 	for i, net := range ins.NetworkInterfaces {
 		netwIfaces[i].UUID = types.StringValue(net.UUID)
 		netwIfaces[i].Name = types.StringValue(net.UUID) // No name in the API response
 		netwIfaces[i].PrivateIP = types.StringValue(net.PrivateIP)
 		netwIfaces[i].MAC = types.StringValue(net.MAC)
 	}
-	data.NetworkInterfaces, diags = types.ListValueFrom(ctx, netwIfaceModelType, netwIfaces)
+	data.NetworkInterfaces, diags = types.ListValueFrom(ctx, models.NetwIfaceModelType, netwIfaces)
 	resp.Diagnostics.Append(diags...)
 
 	// Save data into Terraform state
