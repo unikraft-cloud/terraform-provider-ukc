@@ -1,7 +1,7 @@
 // Copyright (c) Unikraft GmbH
 // SPDX-License-Identifier: MPL-2.0
 
-package provider
+package resource
 
 import (
 	"context"
@@ -21,6 +21,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	models "github.com/unikraft-cloud/terraform-provider-unikraft-cloud/internal/provider/model"
 
 	"sdk.kraft.cloud/instances"
 	"sdk.kraft.cloud/services"
@@ -48,17 +49,17 @@ type InstanceResourceModel struct {
 	MemoryMB  types.Int64  `tfsdk:"memory_mb"`
 	Autostart types.Bool   `tfsdk:"autostart"`
 
-	UUID              types.String `tfsdk:"uuid"`
-	Name              types.String `tfsdk:"name"`
-	FQDN              types.String `tfsdk:"fqdn"`
-	PrivateIP         types.String `tfsdk:"private_ip"`
-	PrivateFQDN       types.String `tfsdk:"private_fqdn"`
-	State             types.String `tfsdk:"state"`
-	CreatedAt         types.String `tfsdk:"created_at"`
-	Env               types.Map    `tfsdk:"env"`
-	ServiceGroup      *svcGrpModel `tfsdk:"service_group"`
-	NetworkInterfaces types.List   `tfsdk:"network_interfaces"`
-	BootTimeUS        types.Int64  `tfsdk:"boot_time_us"`
+	UUID              types.String        `tfsdk:"uuid"`
+	Name              types.String        `tfsdk:"name"`
+	FQDN              types.String        `tfsdk:"fqdn"`
+	PrivateIP         types.String        `tfsdk:"private_ip"`
+	PrivateFQDN       types.String        `tfsdk:"private_fqdn"`
+	State             types.String        `tfsdk:"state"`
+	CreatedAt         types.String        `tfsdk:"created_at"`
+	Env               types.Map           `tfsdk:"env"`
+	ServiceGroup      *models.SvcGrpModel `tfsdk:"service_group"`
+	NetworkInterfaces types.List          `tfsdk:"network_interfaces"`
+	BootTimeUS        types.Int64         `tfsdk:"boot_time_us"`
 }
 
 // Metadata implements resource.Resource.
@@ -82,6 +83,7 @@ func (r *InstanceResource) Schema(ctx context.Context, req resource.SchemaReques
 			"args": schema.ListAttribute{
 				ElementType: types.StringType,
 				Optional:    true,
+				Computed:    true,
 				PlanModifiers: []planmodifier.List{
 					listplanmodifier.RequiresReplaceIfConfigured(),
 					listplanmodifier.UseStateForUnknown(),
@@ -113,6 +115,9 @@ func (r *InstanceResource) Schema(ctx context.Context, req resource.SchemaReques
 				},
 			},
 			"name": schema.StringAttribute{
+				Computed: true,
+			},
+			"fqdn": schema.StringAttribute{
 				Computed: true,
 			},
 			"private_ip": schema.StringAttribute{
@@ -240,16 +245,33 @@ func (r *InstanceResource) Configure(ctx context.Context, req resource.Configure
 		return
 	}
 
-	client, ok := req.ProviderData.(instances.InstancesService)
+	// Handle the map of clients from the provider
+	clients, ok := req.ProviderData.(map[string]interface{})
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Resource Configure Type",
-			fmt.Sprintf("Expected instances.InstancesServices, got: %T. Please report this issue to the provider developers.", req.ProviderData),
+			fmt.Sprintf("Expected map[string]interface{}, got: %T. Please report this issue to the provider developers.", req.ProviderData),
 		)
 		return
 	}
 
-	r.client = client
+	instancesClient, exists := clients["instances"]
+	if !exists {
+		resp.Diagnostics.AddError(
+			"Missing Instances Client",
+			"Instances client not found in provider data",
+		)
+		return
+	}
+
+	r.client, ok = instancesClient.(instances.InstancesService)
+	if !ok {
+		resp.Diagnostics.AddError(
+			"Invalid Instances Client Type",
+			fmt.Sprintf("Expected instances.InstancesService, got: %T", instancesClient),
+		)
+		return
+	}
 }
 
 // Create implements resource.Resource.
@@ -278,10 +300,12 @@ func (r *InstanceResource) Create(ctx context.Context, req resource.CreateReques
 		Autostart: ptr(data.Autostart.ValueBool()),
 	}
 
-	argVals := make([]types.String, 0, len(data.Args.Elements()))
-	resp.Diagnostics.Append(data.Args.ElementsAs(ctx, &argVals, false)...)
-	for _, v := range argVals {
-		in.Args = append(in.Args, v.ValueString())
+	if !data.Args.IsNull() && !data.Args.IsUnknown() {
+		argVals := make([]types.String, 0, len(data.Args.Elements()))
+		resp.Diagnostics.Append(data.Args.ElementsAs(ctx, &argVals, false)...)
+		for _, v := range argVals {
+			in.Args = append(in.Args, v.ValueString())
+		}
 	}
 
 	for i, svc := range data.ServiceGroup.Services {
@@ -354,14 +378,16 @@ func (r *InstanceResource) Create(ctx context.Context, req resource.CreateReques
 	data.MemoryMB = types.Int64Value(int64(insFull.MemoryMB))
 	data.BootTimeUS = types.Int64Value(int64(insFull.BootTimeUs))
 
-	data.Args, diags = types.ListValueFrom(ctx, types.StringType, insFull.Args)
-	resp.Diagnostics.Append(diags...)
+	if data.Args.IsNull() || data.Args.IsUnknown() {
+		data.Args, diags = types.ListValueFrom(ctx, types.StringType, insFull.Args)
+		resp.Diagnostics.Append(diags...)
+	}
 
 	data.Env, diags = types.MapValueFrom(ctx, types.StringType, insFull.Env)
 	resp.Diagnostics.Append(diags...)
 
 	if data.ServiceGroup == nil {
-		data.ServiceGroup = &svcGrpModel{}
+		data.ServiceGroup = &models.SvcGrpModel{}
 	}
 
 	if insFull.ServiceGroup != nil {
@@ -369,14 +395,14 @@ func (r *InstanceResource) Create(ctx context.Context, req resource.CreateReques
 		data.ServiceGroup.Name = types.StringValue(insFull.ServiceGroup.Name)
 	}
 
-	netwIfaces := make([]netwIfaceModel, len(insFull.NetworkInterfaces))
+	netwIfaces := make([]models.NetwIfaceModel, len(insFull.NetworkInterfaces))
 	for i, net := range insFull.NetworkInterfaces {
 		netwIfaces[i].UUID = types.StringValue(net.UUID)
 		netwIfaces[i].Name = types.StringValue(insFull.Name)
 		netwIfaces[i].PrivateIP = types.StringValue(net.PrivateIP)
 		netwIfaces[i].MAC = types.StringValue(net.MAC)
 	}
-	data.NetworkInterfaces, diags = types.ListValueFrom(ctx, netwIfaceModelType, netwIfaces)
+	data.NetworkInterfaces, diags = types.ListValueFrom(ctx, models.NetwIfaceModelType, netwIfaces)
 	resp.Diagnostics.Append(diags...)
 
 	// Save data into Terraform state
@@ -430,14 +456,17 @@ func (r *InstanceResource) Read(ctx context.Context, req resource.ReadRequest, r
 	data.MemoryMB = types.Int64Value(int64(ins.MemoryMB))
 	data.BootTimeUS = types.Int64Value(int64(ins.BootTimeUs))
 
-	data.Args, diags = types.ListValueFrom(ctx, types.StringType, ins.Args)
+	if data.Args.IsNull() || data.Args.IsUnknown() {
+		data.Args, diags = types.ListValueFrom(ctx, types.StringType, ins.Args)
+		resp.Diagnostics.Append(diags...)
+	}
 	resp.Diagnostics.Append(diags...)
 
 	data.Env, diags = types.MapValueFrom(ctx, types.StringType, ins.Env)
 	resp.Diagnostics.Append(diags...)
 
 	if data.ServiceGroup == nil {
-		data.ServiceGroup = &svcGrpModel{}
+		data.ServiceGroup = &models.SvcGrpModel{}
 	}
 
 	if ins.ServiceGroup != nil {
@@ -445,14 +474,14 @@ func (r *InstanceResource) Read(ctx context.Context, req resource.ReadRequest, r
 		data.ServiceGroup.Name = types.StringValue(ins.ServiceGroup.Name)
 	}
 
-	netwIfaces := make([]netwIfaceModel, len(ins.NetworkInterfaces))
+	netwIfaces := make([]models.NetwIfaceModel, len(ins.NetworkInterfaces))
 	for i, net := range ins.NetworkInterfaces {
 		netwIfaces[i].UUID = types.StringValue(net.UUID)
 		netwIfaces[i].Name = types.StringValue(net.UUID) // No name in the response
 		netwIfaces[i].PrivateIP = types.StringValue(net.PrivateIP)
 		netwIfaces[i].MAC = types.StringValue(net.MAC)
 	}
-	data.NetworkInterfaces, diags = types.ListValueFrom(ctx, netwIfaceModelType, netwIfaces)
+	data.NetworkInterfaces, diags = types.ListValueFrom(ctx, models.NetwIfaceModelType, netwIfaces)
 	resp.Diagnostics.Append(diags...)
 
 	// Save updated data into Terraform state
