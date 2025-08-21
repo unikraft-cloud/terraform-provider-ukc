@@ -1,11 +1,11 @@
 // Copyright (c) Unikraft GmbH
 // SPDX-License-Identifier: MPL-2.0
 
-package provider
+package resource
 
 import (
 	"testing"
 )
 
-func TestAccInstancesDataSource(t *testing.T) {
+func TestAccInstanceResource(t *testing.T) {
 }
