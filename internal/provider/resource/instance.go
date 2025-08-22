@@ -245,16 +245,33 @@ func (r *InstanceResource) Configure(ctx context.Context, req resource.Configure
 		return
 	}
 
-	client, ok := req.ProviderData.(instances.InstancesService)
+	// Handle the map of clients from the provider
+	clients, ok := req.ProviderData.(map[string]interface{})
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Resource Configure Type",
-			fmt.Sprintf("Expected instances.InstancesServices, got: %T. Please report this issue to the provider developers.", req.ProviderData),
+			fmt.Sprintf("Expected map[string]interface{}, got: %T. Please report this issue to the provider developers.", req.ProviderData),
 		)
 		return
 	}
 
-	r.client = client
+	instancesClient, exists := clients["instances"]
+	if !exists {
+		resp.Diagnostics.AddError(
+			"Missing Instances Client",
+			"Instances client not found in provider data",
+		)
+		return
+	}
+
+	r.client, ok = instancesClient.(instances.InstancesService)
+	if !ok {
+		resp.Diagnostics.AddError(
+			"Invalid Instances Client Type",
+			fmt.Sprintf("Expected instances.InstancesService, got: %T", instancesClient),
+		)
+		return
+	}
 }
 
 // Create implements resource.Resource.
