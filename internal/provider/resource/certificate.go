@@ -97,7 +97,7 @@ func (r *CertificateResource) Schema(ctx context.Context, req resource.SchemaReq
 						MarkdownDescription: "The certificate which was created by this request.\n\nNote: only one certificate can be specified in the request, so this\nwill always contain a single entry.",
 					},
 				},
-				CustomType: DataType{
+				CustomType: DataTypeCertificate{
 					ObjectType: types.ObjectType{
 						AttrTypes: CertificateDataValue{}.AttributeTypes(ctx),
 					},
@@ -117,6 +117,7 @@ func (r *CertificateResource) Schema(ctx context.Context, req resource.SchemaReq
 			},
 			"pkey": schema.StringAttribute{
 				Required:            true,
+				Sensitive:           true,
 				Description:         "The private key of the certificate.",
 				MarkdownDescription: "The private key of the certificate.",
 			},
@@ -368,14 +369,14 @@ func (r *CertificateResource) ImportState(ctx context.Context, req resource.Impo
 	resource.ImportStatePassthroughID(ctx, path.Root("uuid"), req, resp)
 }
 
-var _ basetypes.ObjectTypable = DataType{}
+var _ basetypes.ObjectTypable = DataTypeCertificate{}
 
-type DataType struct {
+type DataTypeCertificate struct {
 	basetypes.ObjectType
 }
 
-func (t DataType) Equal(o attr.Type) bool {
-	other, ok := o.(DataType)
+func (t DataTypeCertificate) Equal(o attr.Type) bool {
+	other, ok := o.(DataTypeCertificate)
 
 	if !ok {
 		return false
@@ -384,11 +385,11 @@ func (t DataType) Equal(o attr.Type) bool {
 	return t.ObjectType.Equal(other.ObjectType)
 }
 
-func (t DataType) String() string {
-	return "DataType"
+func (t DataTypeCertificate) String() string {
+	return "DataTypeCertificate"
 }
 
-func (t DataType) ValueFromObject(ctx context.Context, in basetypes.ObjectValue) (basetypes.ObjectValuable, diag.Diagnostics) {
+func (t DataTypeCertificate) ValueFromObject(ctx context.Context, in basetypes.ObjectValue) (basetypes.ObjectValuable, diag.Diagnostics) {
 	var diags diag.Diagnostics
 
 	attributes := in.Attributes()
@@ -533,7 +534,7 @@ func NewCertificateDataValueMust(attributeTypes map[string]attr.Type, attributes
 	return object
 }
 
-func (t DataType) ValueFromTerraform(ctx context.Context, in tftypes.Value) (attr.Value, error) {
+func (t DataTypeCertificate) ValueFromTerraform(ctx context.Context, in tftypes.Value) (attr.Value, error) {
 	if in.Type() == nil {
 		return NewCertificateDataValueNull(), nil
 	}
@@ -573,7 +574,7 @@ func (t DataType) ValueFromTerraform(ctx context.Context, in tftypes.Value) (att
 	return NewCertificateDataValueMust(CertificateDataValue{}.AttributeTypes(ctx), attributes), nil
 }
 
-func (t DataType) ValueType(ctx context.Context) attr.Value {
+func (t DataTypeCertificate) ValueType(ctx context.Context) attr.Value {
 	return CertificateDataValue{}
 }
 
@@ -712,7 +713,7 @@ func (v CertificateDataValue) Equal(o attr.Value) bool {
 }
 
 func (v CertificateDataValue) Type(ctx context.Context) attr.Type {
-	return DataType{
+	return DataTypeCertificate{
 		basetypes.ObjectType{
 			AttrTypes: v.AttributeTypes(ctx),
 		},
