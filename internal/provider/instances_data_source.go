@@ -16,6 +16,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
+	ukc "sdk.kraft.cloud"
 	"sdk.kraft.cloud/instances"
 )
 
@@ -82,16 +83,16 @@ func (d *InstancesDataSource) Configure(ctx context.Context, req datasource.Conf
 		return
 	}
 
-	client, ok := req.ProviderData.(instances.InstancesService)
+	client, ok := req.ProviderData.(ukc.KraftCloud)
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Data Source Configure Type",
-			fmt.Sprintf("Expected instances.InstancesServices, got: %T. Please report this issue to the provider developers.", req.ProviderData),
+			fmt.Sprintf("Expected KraftCloud, got: %T. Please report this issue to the provider developers.", req.ProviderData),
 		)
 		return
 	}
 
-	d.client = client
+	d.client = client.Instances()
 }
 
 // Read implements datasource.DataSource.

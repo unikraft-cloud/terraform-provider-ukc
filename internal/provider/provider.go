@@ -14,7 +14,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
-	unikraftcloud "sdk.kraft.cloud"
+	ukc "sdk.kraft.cloud"
 	"sdk.kraft.cloud/client"
 )
 
@@ -146,13 +146,13 @@ func (p *UnikraftCloudProvider) Configure(ctx context.Context, req provider.Conf
 	}
 
 	// Client configuration for data sources and resources
-	client := unikraftcloud.NewClient(
-		unikraftcloud.WithDefaultMetro(metro),
-		unikraftcloud.WithToken(token),
+	client := ukc.NewClient(
+		ukc.WithDefaultMetro(metro),
+		ukc.WithToken(token),
 	)
 
-	resp.DataSourceData = client.Instances()
-	resp.ResourceData = client.Instances()
+	resp.DataSourceData = client
+	resp.ResourceData = client
 }
 
 // Resources describes the provider data model.
