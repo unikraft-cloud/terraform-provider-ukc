@@ -171,6 +171,7 @@ func (p *UnikraftCloudProvider) Resources(ctx context.Context) []func() resource
 	return []func() resource.Resource{
 		iresource.NewInstanceResource,
 		iresource.NewCertificateResource,
+		iresource.NewVolumeResource,
 	}
 }
 
