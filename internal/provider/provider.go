@@ -157,6 +157,10 @@ func (p *UnikraftCloudProvider) Configure(ctx context.Context, req provider.Conf
 	clients := map[string]any{
 		"instances":    client.Instances(),
 		"certificates": client.Certificates(),
+		"volumes":      client.Volumes(),
+		"images":       client.Images(),
+		"metros":       client.Metros(),
+		"services":     client.Services(),
 	}
 	resp.DataSourceData = client.Instances()
 	resp.ResourceData = clients
