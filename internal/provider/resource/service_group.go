@@ -1,0 +1,1795 @@
+package resource
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"github.com/hashicorp/terraform-plugin-framework/attr"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/path"
+	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
+	"github.com/hashicorp/terraform-plugin-go/tftypes"
+	"sdk.kraft.cloud/services"
+
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+)
+
+func NewServiceGroupResource() resource.Resource {
+	return &ServiceGroupResource{}
+}
+
+// ServiceGroupResource defines the resource implementation.
+type ServiceGroupResource struct {
+	client services.ServicesService
+}
+
+// Ensure ServiceGroupResource satisfies various resource interfaces.
+var (
+	_ resource.Resource                = &ServiceGroupResource{}
+	_ resource.ResourceWithImportState = &ServiceGroupResource{}
+)
+
+func (r *ServiceGroupResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
+	resp.Schema = schema.Schema{
+		Attributes: map[string]schema.Attribute{
+			"details": schema.BoolAttribute{
+				Optional:            true,
+				Computed:            true,
+				Description:         "Whether to include details about the service group in the response.  By\ndefault this is set to true, meaning that all information about the service\ngroup will be included in the response.  If set to false, only the basic\ninformation about the service group will be included, such as its name and\nUUID.",
+				MarkdownDescription: "Whether to include details about the service group in the response.  By\ndefault this is set to true, meaning that all information about the service\ngroup will be included in the response.  If set to false, only the basic\ninformation about the service group will be included, such as its name and\nUUID.",
+			},
+			"domains": schema.ListNestedAttribute{
+				NestedObject: schema.NestedAttributeObject{
+					Attributes: map[string]schema.Attribute{
+						"certificate": schema.SingleNestedAttribute{
+							Attributes: map[string]schema.Attribute{
+								"name": schema.StringAttribute{
+									Optional:            true,
+									Computed:            true,
+									Description:         "The name of the certificate to use for the service group.",
+									MarkdownDescription: "The name of the certificate to use for the service group.",
+								},
+								"uuid": schema.StringAttribute{
+									Optional:            true,
+									Computed:            true,
+									Description:         "The UUID of the certificate to use for the service group.",
+									MarkdownDescription: "The UUID of the certificate to use for the service group.",
+								},
+							},
+							CustomType: CertificateType{
+								ObjectType: types.ObjectType{
+									AttrTypes: CertificateValue{}.AttributeTypes(ctx),
+								},
+							},
+							Optional:            true,
+							Computed:            true,
+							Description:         "An identifier for the domain certificate to use for the service group.",
+							MarkdownDescription: "An identifier for the domain certificate to use for the service group.",
+						},
+						"name": schema.StringAttribute{
+							Required:            true,
+							Description:         "Publicly accessible domain name.  If this name ends in a period `.` it must\nbe a valid Full Qualified Domain Name (FQDN), otherwise it will become a\nsubdomain of the target metro.",
+							MarkdownDescription: "Publicly accessible domain name.  If this name ends in a period `.` it must\nbe a valid Full Qualified Domain Name (FQDN), otherwise it will become a\nsubdomain of the target metro.",
+						},
+					},
+					CustomType: DomainsType{
+						ObjectType: types.ObjectType{
+							AttrTypes: DomainsValue{}.AttributeTypes(ctx),
+						},
+					},
+				},
+				Optional:            true,
+				Computed:            true,
+				Description:         "Description of domains associated with the service group.",
+				MarkdownDescription: "Description of domains associated with the service group.",
+			},
+			"hard_limit": schema.Int64Attribute{
+				Optional:            true,
+				Computed:            true,
+				Description:         "The hard limit defines the maximum number of concurrent requests that an\ninstance assigned to the this service can handle.\n\nThe load balancer will never assign more requests to a single instance.  In\ncase there are no other instances available, excess requests fail (i.e.,\nthey are blocked and not queued).",
+				MarkdownDescription: "The hard limit defines the maximum number of concurrent requests that an\ninstance assigned to the this service can handle.\n\nThe load balancer will never assign more requests to a single instance.  In\ncase there are no other instances available, excess requests fail (i.e.,\nthey are blocked and not queued).",
+			},
+			"name": schema.StringAttribute{
+				Optional:            true,
+				Computed:            true,
+				Description:         "Name of the service group.  This is a human-readable name that can be used\nto identify the service group.  The name must be unique within the context\nof your account.  If no name is specified, a random name is generated for\nyou.  The name can also be used to identify the service group in API calls.",
+				MarkdownDescription: "Name of the service group.  This is a human-readable name that can be used\nto identify the service group.  The name must be unique within the context\nof your account.  If no name is specified, a random name is generated for\nyou.  The name can also be used to identify the service group in API calls.",
+			},
+			"services": schema.ListNestedAttribute{
+				NestedObject: schema.NestedAttributeObject{
+					Attributes: map[string]schema.Attribute{
+						"destination_port": schema.Int64Attribute{
+							Optional:            true,
+							Computed:            true,
+							Description:         "The port number that the instance is listening on.  This is the internal\nport which Unikraft Cloud will forward traffic to.",
+							MarkdownDescription: "The port number that the instance is listening on.  This is the internal\nport which Unikraft Cloud will forward traffic to.",
+						},
+						"handlers": schema.ListAttribute{
+							ElementType:         types.StringType,
+							Optional:            true,
+							Computed:            true,
+							Description:         "Connection handlers to use for the service.  Handlers define how the\nservice will handle incoming connections and forward traffic from the\nInternet to your application.  For example, a service can be configured\nto terminate TLS connections, redirect HTTP traffic, or enable HTTP mode\nfor load balancing.  You configure the handlers for every published\nservice port individually.",
+							MarkdownDescription: "Connection handlers to use for the service.  Handlers define how the\nservice will handle incoming connections and forward traffic from the\nInternet to your application.  For example, a service can be configured\nto terminate TLS connections, redirect HTTP traffic, or enable HTTP mode\nfor load balancing.  You configure the handlers for every published\nservice port individually.",
+						},
+						"port": schema.Int64Attribute{
+							Required:            true,
+							Description:         "This is the public-facing port that the service will be accessible from\non the Internet.",
+							MarkdownDescription: "This is the public-facing port that the service will be accessible from\non the Internet.",
+						},
+					},
+					CustomType: ServicesType{
+						ObjectType: types.ObjectType{
+							AttrTypes: ServicesValue{}.AttributeTypes(ctx),
+						},
+					},
+				},
+				Optional:            true,
+				Computed:            true,
+				Description:         "Description of exposed services.",
+				MarkdownDescription: "Description of exposed services.",
+			},
+			"soft_limit": schema.Int64Attribute{
+				Optional:            true,
+				Computed:            true,
+				Description:         "The soft limit is used by the Unikraft Cloud load balancer to decide when\nto wake up another standby instance.\n\nFor example, if the soft limit is set to 5 and the service consists of 2\nstandby instances, one of the instances receives up to 5 concurrent\nrequests.  The 6th parallel requests wakes up the second instance.  If\nthere are no more standby instances to wake up, the number of requests\nassigned to each instance will exceed the soft limit.  The load balancer\nmakes sure that when the number of in-flight requests goes down again,\ninstances are put into standby as fast as possible.",
+				MarkdownDescription: "The soft limit is used by the Unikraft Cloud load balancer to decide when\nto wake up another standby instance.\n\nFor example, if the soft limit is set to 5 and the service consists of 2\nstandby instances, one of the instances receives up to 5 concurrent\nrequests.  The 6th parallel requests wakes up the second instance.  If\nthere are no more standby instances to wake up, the number of requests\nassigned to each instance will exceed the soft limit.  The load balancer\nmakes sure that when the number of in-flight requests goes down again,\ninstances are put into standby as fast as possible.",
+			},
+			"uuid": schema.StringAttribute{
+				Optional:            true,
+				Computed:            true,
+				Description:         "The UUID of the service group to retrieve.",
+				MarkdownDescription: "The UUID of the service group to retrieve.",
+			},
+		},
+	}
+}
+
+// Metadata implements resource.Resource.
+func (r *ServiceGroupResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+	resp.TypeName = req.ProviderTypeName + "_service_group"
+}
+
+// Configure implements resource.Resource.
+func (r *ServiceGroupResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+	// Prevent panic if the provider has not been configured.
+	if req.ProviderData == nil {
+		return
+	}
+
+	// Handle the map of clients from the provider
+	clients, ok := req.ProviderData.(map[string]any)
+	if !ok {
+		resp.Diagnostics.AddError(
+			"Unexpected Resource Configure Type",
+			fmt.Sprintf("Expected map[string]any, got: %T. Please report this issue to the provider developers.", req.ProviderData),
+		)
+		return
+	}
+
+	servicesClient, exists := clients["services"]
+	if !exists {
+		resp.Diagnostics.AddError(
+			"Missing Services Client",
+			"Services client not found in provider data",
+		)
+		return
+	}
+
+	r.client, ok = servicesClient.(services.ServicesService)
+	if !ok {
+		resp.Diagnostics.AddError(
+			"Invalid Services Client Type",
+			fmt.Sprintf("Expected services.ServicesService, got: %T", servicesClient),
+		)
+		return
+	}
+}
+
+// Create implements resource.Resource.
+func (r *ServiceGroupResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var data ServiceGroupModel
+
+	// Read Terraform plan data into the model
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	createReq := services.CreateRequest{}
+
+	if !data.Name.IsNull() && !data.Name.IsUnknown() {
+		nameValue := data.Name.ValueString()
+		createReq.Name = &nameValue
+	}
+
+	if !data.Domains.IsNull() && !data.Domains.IsUnknown() {
+		var domainsList []DomainsValue
+		resp.Diagnostics.Append(data.Domains.ElementsAs(ctx, &domainsList, false)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+
+		createReq.Domains = make([]services.CreateRequestDomain, len(domainsList))
+		for i, domain := range domainsList {
+			createReq.Domains[i] = services.CreateRequestDomain{
+				Name: domain.Name.ValueString(),
+			}
+
+			// Add certificate if provided
+			if !domain.Certificate.IsNull() && !domain.Certificate.IsUnknown() {
+				certAttrs := domain.Certificate.Attributes()
+				if nameAttr, ok := certAttrs["name"]; ok && !nameAttr.IsNull() {
+					if uuidAttr, ok := certAttrs["uuid"]; ok && !uuidAttr.IsNull() {
+						createReq.Domains[i].Certificate = &services.CreateRequestDomainCertificate{
+							Name: nameAttr.(basetypes.StringValue).ValueString(),
+							UUID: uuidAttr.(basetypes.StringValue).ValueString(),
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if !data.Services.IsNull() && !data.Services.IsUnknown() {
+		var servicesList []ServicesValue
+		resp.Diagnostics.Append(data.Services.ElementsAs(ctx, &servicesList, false)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+
+		createReq.Services = make([]services.CreateRequestService, len(servicesList))
+		for i, service := range servicesList {
+			createReq.Services[i] = services.CreateRequestService{
+				Port: int(service.Port.ValueInt64()),
+			}
+
+			if !service.DestinationPort.IsNull() && !service.DestinationPort.IsUnknown() {
+				destPort := int(service.DestinationPort.ValueInt64())
+				createReq.Services[i].DestinationPort = &destPort
+			}
+
+			if !service.Handlers.IsNull() && !service.Handlers.IsUnknown() {
+				var handlers []string
+				resp.Diagnostics.Append(service.Handlers.ElementsAs(ctx, &handlers, false)...)
+				if resp.Diagnostics.HasError() {
+					return
+				}
+
+				createReq.Services[i].Handlers = make([]services.Handler, len(handlers))
+				for j, handler := range handlers {
+					createReq.Services[i].Handlers[j] = services.Handler(handler)
+				}
+			}
+		}
+	}
+
+	if !data.HardLimit.IsNull() && !data.HardLimit.IsUnknown() {
+		hardLimit := int(data.HardLimit.ValueInt64())
+		createReq.HardLimit = &hardLimit
+	}
+	if !data.SoftLimit.IsNull() && !data.SoftLimit.IsUnknown() {
+		softLimit := int(data.SoftLimit.ValueInt64())
+		createReq.SoftLimit = &softLimit
+	}
+
+	sgRaw, err := r.client.Create(ctx, createReq)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Client Error",
+			fmt.Sprintf("Failed to create service group, got error: %v", err),
+		)
+		return
+	}
+
+	if sgRaw == nil {
+		resp.Diagnostics.AddError(
+			"API Error",
+			"No response returned from create operation",
+		)
+		return
+	}
+
+	if len(sgRaw.Data.Entries) == 0 {
+		resp.Diagnostics.AddError(
+			"API Error",
+			"No service group returned from create operation",
+		)
+		return
+	}
+
+	createItem := sgRaw.Data.Entries[0]
+
+	data.Name = types.StringValue(createItem.Name)
+	data.Uuid = types.StringValue(createItem.UUID)
+
+	if data.HardLimit.IsNull() || data.HardLimit.IsUnknown() {
+		data.HardLimit = types.Int64Null()
+	}
+	if data.SoftLimit.IsNull() || data.SoftLimit.IsUnknown() {
+		data.SoftLimit = types.Int64Null()
+	}
+
+	if len(createItem.Domains) > 0 {
+		domainValues := make([]DomainsValue, len(createItem.Domains))
+		for i, apiDomain := range createItem.Domains {
+			// Create certificate value if present
+			var certValue basetypes.ObjectValue
+			if apiDomain.Certificate != nil {
+				certValue = types.ObjectValueMust(
+					CertificateValue{}.AttributeTypes(ctx),
+					map[string]attr.Value{
+						"name": types.StringValue(apiDomain.Certificate.Name),
+						"uuid": types.StringValue(apiDomain.Certificate.UUID),
+					},
+				)
+			} else {
+				certValue = types.ObjectNull(CertificateValue{}.AttributeTypes(ctx))
+			}
+
+			domainValues[i] = DomainsValue{
+				Name:        types.StringValue(apiDomain.FQDN),
+				Certificate: certValue,
+				state:       attr.ValueStateKnown,
+			}
+		}
+
+		domainsListValue, diags := types.ListValueFrom(ctx, DomainsType{
+			ObjectType: types.ObjectType{
+				AttrTypes: DomainsValue{}.AttributeTypes(ctx),
+			},
+		}, domainValues)
+		resp.Diagnostics.Append(diags...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+		data.Domains = domainsListValue
+	} else {
+		data.Domains = types.ListNull(DomainsType{
+			ObjectType: types.ObjectType{
+				AttrTypes: DomainsValue{}.AttributeTypes(ctx),
+			},
+		})
+	}
+
+	if data.Services.IsNull() || data.Services.IsUnknown() {
+		data.Services = types.ListNull(ServicesType{
+			ObjectType: types.ObjectType{
+				AttrTypes: ServicesValue{}.AttributeTypes(ctx),
+			},
+		})
+	}
+
+	if data.Details.IsNull() || data.Details.IsUnknown() {
+		data.Details = types.BoolValue(true)
+	}
+
+	// Save data into Terraform state
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+}
+
+// Read implements resource.Resource.
+func (r *ServiceGroupResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	var data ServiceGroupModel
+
+	// Read Terraform prior state data into the model
+	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	serviceGroupUUID := data.Uuid.ValueString()
+	if serviceGroupUUID == "" {
+		resp.Diagnostics.AddError(
+			"Invalid State",
+			"Service group UUID not found in state",
+		)
+		return
+	}
+
+	sgRaw, err := r.client.Get(ctx, serviceGroupUUID)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Client Error",
+			fmt.Sprintf("Failed to read service group, got error: %v", err),
+		)
+		return
+	}
+
+	// Check if service group still exists
+	if len(sgRaw.Data.Entries) == 0 {
+		resp.State.RemoveResource(ctx)
+		return
+	}
+
+	sg := sgRaw.Data.Entries[0]
+
+	data.Name = types.StringValue(sg.Name)
+	data.Uuid = types.StringValue(sg.UUID)
+	data.HardLimit = types.Int64Value(int64(sg.HardLimit))
+	data.SoftLimit = types.Int64Value(int64(sg.SoftLimit))
+
+	if len(sg.Domains) > 0 {
+		domainValues := make([]DomainsValue, len(sg.Domains))
+		for i, apiDomain := range sg.Domains {
+			var certValue basetypes.ObjectValue
+			if apiDomain.Certificate != nil {
+				certValue = types.ObjectValueMust(
+					CertificateValue{}.AttributeTypes(ctx),
+					map[string]attr.Value{
+						"name": types.StringValue(apiDomain.Certificate.Name),
+						"uuid": types.StringValue(apiDomain.Certificate.UUID),
+					},
+				)
+			} else {
+				certValue = types.ObjectNull(CertificateValue{}.AttributeTypes(ctx))
+			}
+
+			domainValues[i] = DomainsValue{
+				Name:        types.StringValue(apiDomain.FQDN),
+				Certificate: certValue,
+				state:       attr.ValueStateKnown,
+			}
+		}
+
+		domainsListValue, diags := types.ListValueFrom(ctx, DomainsType{
+			ObjectType: types.ObjectType{
+				AttrTypes: DomainsValue{}.AttributeTypes(ctx),
+			},
+		}, domainValues)
+		resp.Diagnostics.Append(diags...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+		data.Domains = domainsListValue
+	} else {
+		data.Domains = types.ListNull(DomainsType{
+			ObjectType: types.ObjectType{
+				AttrTypes: DomainsValue{}.AttributeTypes(ctx),
+			},
+		})
+	}
+
+	if len(sg.Services) > 0 {
+		serviceValues := make([]ServicesValue, len(sg.Services))
+		for i, apiService := range sg.Services {
+			var handlersListValue basetypes.ListValue
+			if len(apiService.Handlers) > 0 {
+				handlerStrings := make([]string, len(apiService.Handlers))
+				for j, handler := range apiService.Handlers {
+					handlerStrings[j] = string(handler) // Convert Handler to string
+				}
+				handlersListValue = types.ListValueMust(types.StringType,
+					func() []attr.Value {
+						values := make([]attr.Value, len(handlerStrings))
+						for k, s := range handlerStrings {
+							values[k] = types.StringValue(s)
+						}
+						return values
+					}())
+			} else {
+				handlersListValue = types.ListNull(types.StringType)
+			}
+
+			serviceValues[i] = ServicesValue{
+				Port:            types.Int64Value(int64(apiService.Port)),
+				DestinationPort: types.Int64Value(int64(apiService.DestinationPort)),
+				Handlers:        handlersListValue,
+				state:           attr.ValueStateKnown,
+			}
+		}
+
+		servicesListValue, diags := types.ListValueFrom(ctx, ServicesType{
+			ObjectType: types.ObjectType{
+				AttrTypes: ServicesValue{}.AttributeTypes(ctx),
+			},
+		}, serviceValues)
+		resp.Diagnostics.Append(diags...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+		data.Services = servicesListValue
+	} else {
+		data.Services = types.ListNull(ServicesType{
+			ObjectType: types.ObjectType{
+				AttrTypes: ServicesValue{}.AttributeTypes(ctx),
+			},
+		})
+	}
+
+	if data.Details.IsNull() || data.Details.IsUnknown() {
+		data.Details = types.BoolValue(true)
+	}
+
+	// Save updated data into Terraform state
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+}
+
+// Update implements resource.Resource.
+func (r *ServiceGroupResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	resp.Diagnostics.AddError(
+		"Unsupported",
+		"This resource does not support updates. Configuration changes were expected to have triggered a replacement "+
+			"of the resource. Please report this issue to the provider developers.",
+	)
+}
+
+// Delete implements resource.Resource.
+func (r *ServiceGroupResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var data ServiceGroupModel
+
+	// Read Terraform prior state data into the model
+	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	serviceGroupUUID := data.Uuid.ValueString()
+	if serviceGroupUUID == "" {
+		resp.Diagnostics.AddError(
+			"Invalid State",
+			"Service group UUID not found in state",
+		)
+		return
+	}
+
+	_, err := r.client.Delete(ctx, serviceGroupUUID)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Client Error",
+			fmt.Sprintf("Failed to delete service group, got error: %v", err),
+		)
+		return
+	}
+}
+
+// ImportState implements resource.ResourceWithImportState.
+func (r *ServiceGroupResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("uuid"), req, resp)
+}
+
+type ServiceGroupModel struct {
+	Details   types.Bool   `tfsdk:"details"`
+	Domains   types.List   `tfsdk:"domains"`
+	HardLimit types.Int64  `tfsdk:"hard_limit"`
+	Name      types.String `tfsdk:"name"`
+	Services  types.List   `tfsdk:"services"`
+	SoftLimit types.Int64  `tfsdk:"soft_limit"`
+	Uuid      types.String `tfsdk:"uuid"`
+}
+
+var _ basetypes.ObjectTypable = DomainsType{}
+
+type DomainsType struct {
+	basetypes.ObjectType
+}
+
+func (t DomainsType) Equal(o attr.Type) bool {
+	other, ok := o.(DomainsType)
+
+	if !ok {
+		return false
+	}
+
+	return t.ObjectType.Equal(other.ObjectType)
+}
+
+func (t DomainsType) String() string {
+	return "DomainsType"
+}
+
+func (t DomainsType) ValueFromObject(ctx context.Context, in basetypes.ObjectValue) (basetypes.ObjectValuable, diag.Diagnostics) {
+	var diags diag.Diagnostics
+
+	attributes := in.Attributes()
+
+	certificateAttribute, ok := attributes["certificate"]
+
+	if !ok {
+		diags.AddError(
+			"Attribute Missing",
+			`certificate is missing from object`)
+
+		return nil, diags
+	}
+
+	certificateVal, ok := certificateAttribute.(basetypes.ObjectValue)
+
+	if !ok {
+		diags.AddError(
+			"Attribute Wrong Type",
+			fmt.Sprintf(`certificate expected to be basetypes.ObjectValue, was: %T`, certificateAttribute))
+	}
+
+	nameAttribute, ok := attributes["name"]
+
+	if !ok {
+		diags.AddError(
+			"Attribute Missing",
+			`name is missing from object`)
+
+		return nil, diags
+	}
+
+	nameVal, ok := nameAttribute.(basetypes.StringValue)
+
+	if !ok {
+		diags.AddError(
+			"Attribute Wrong Type",
+			fmt.Sprintf(`name expected to be basetypes.StringValue, was: %T`, nameAttribute))
+	}
+
+	if diags.HasError() {
+		return nil, diags
+	}
+
+	return DomainsValue{
+		Certificate: certificateVal,
+		Name:        nameVal,
+		state:       attr.ValueStateKnown,
+	}, diags
+}
+
+func NewDomainsValueNull() DomainsValue {
+	return DomainsValue{
+		state: attr.ValueStateNull,
+	}
+}
+
+func NewDomainsValueUnknown() DomainsValue {
+	return DomainsValue{
+		state: attr.ValueStateUnknown,
+	}
+}
+
+func NewDomainsValue(attributeTypes map[string]attr.Type, attributes map[string]attr.Value) (DomainsValue, diag.Diagnostics) {
+	var diags diag.Diagnostics
+
+	// Reference: https://github.com/hashicorp/terraform-plugin-framework/issues/521
+	ctx := context.Background()
+
+	for name, attributeType := range attributeTypes {
+		attribute, ok := attributes[name]
+
+		if !ok {
+			diags.AddError(
+				"Missing DomainsValue Attribute Value",
+				"While creating a DomainsValue value, a missing attribute value was detected. "+
+					"A DomainsValue must contain values for all attributes, even if null or unknown. "+
+					"This is always an issue with the provider and should be reported to the provider developers.\n\n"+
+					fmt.Sprintf("DomainsValue Attribute Name (%s) Expected Type: %s", name, attributeType.String()),
+			)
+
+			continue
+		}
+
+		if !attributeType.Equal(attribute.Type(ctx)) {
+			diags.AddError(
+				"Invalid DomainsValue Attribute Type",
+				"While creating a DomainsValue value, an invalid attribute value was detected. "+
+					"A DomainsValue must use a matching attribute type for the value. "+
+					"This is always an issue with the provider and should be reported to the provider developers.\n\n"+
+					fmt.Sprintf("DomainsValue Attribute Name (%s) Expected Type: %s\n", name, attributeType.String())+
+					fmt.Sprintf("DomainsValue Attribute Name (%s) Given Type: %s", name, attribute.Type(ctx)),
+			)
+		}
+	}
+
+	for name := range attributes {
+		_, ok := attributeTypes[name]
+
+		if !ok {
+			diags.AddError(
+				"Extra DomainsValue Attribute Value",
+				"While creating a DomainsValue value, an extra attribute value was detected. "+
+					"A DomainsValue must not contain values beyond the expected attribute types. "+
+					"This is always an issue with the provider and should be reported to the provider developers.\n\n"+
+					fmt.Sprintf("Extra DomainsValue Attribute Name: %s", name),
+			)
+		}
+	}
+
+	if diags.HasError() {
+		return NewDomainsValueUnknown(), diags
+	}
+
+	certificateAttribute, ok := attributes["certificate"]
+
+	if !ok {
+		diags.AddError(
+			"Attribute Missing",
+			`certificate is missing from object`)
+
+		return NewDomainsValueUnknown(), diags
+	}
+
+	certificateVal, ok := certificateAttribute.(basetypes.ObjectValue)
+
+	if !ok {
+		diags.AddError(
+			"Attribute Wrong Type",
+			fmt.Sprintf(`certificate expected to be basetypes.ObjectValue, was: %T`, certificateAttribute))
+	}
+
+	nameAttribute, ok := attributes["name"]
+
+	if !ok {
+		diags.AddError(
+			"Attribute Missing",
+			`name is missing from object`)
+
+		return NewDomainsValueUnknown(), diags
+	}
+
+	nameVal, ok := nameAttribute.(basetypes.StringValue)
+
+	if !ok {
+		diags.AddError(
+			"Attribute Wrong Type",
+			fmt.Sprintf(`name expected to be basetypes.StringValue, was: %T`, nameAttribute))
+	}
+
+	if diags.HasError() {
+		return NewDomainsValueUnknown(), diags
+	}
+
+	return DomainsValue{
+		Certificate: certificateVal,
+		Name:        nameVal,
+		state:       attr.ValueStateKnown,
+	}, diags
+}
+
+func NewDomainsValueMust(attributeTypes map[string]attr.Type, attributes map[string]attr.Value) DomainsValue {
+	object, diags := NewDomainsValue(attributeTypes, attributes)
+
+	if diags.HasError() {
+		// This could potentially be added to the diag package.
+		diagsStrings := make([]string, 0, len(diags))
+
+		for _, diagnostic := range diags {
+			diagsStrings = append(diagsStrings, fmt.Sprintf(
+				"%s | %s | %s",
+				diagnostic.Severity(),
+				diagnostic.Summary(),
+				diagnostic.Detail()))
+		}
+
+		panic("NewDomainsValueMust received error(s): " + strings.Join(diagsStrings, "\n"))
+	}
+
+	return object
+}
+
+func (t DomainsType) ValueFromTerraform(ctx context.Context, in tftypes.Value) (attr.Value, error) {
+	if in.Type() == nil {
+		return NewDomainsValueNull(), nil
+	}
+
+	if !in.Type().Equal(t.TerraformType(ctx)) {
+		return nil, fmt.Errorf("expected %s, got %s", t.TerraformType(ctx), in.Type())
+	}
+
+	if !in.IsKnown() {
+		return NewDomainsValueUnknown(), nil
+	}
+
+	if in.IsNull() {
+		return NewDomainsValueNull(), nil
+	}
+
+	attributes := map[string]attr.Value{}
+
+	val := map[string]tftypes.Value{}
+
+	err := in.As(&val)
+	if err != nil {
+		return nil, err
+	}
+
+	for k, v := range val {
+		a, err := t.AttrTypes[k].ValueFromTerraform(ctx, v)
+		if err != nil {
+			return nil, err
+		}
+
+		attributes[k] = a
+	}
+
+	return NewDomainsValueMust(DomainsValue{}.AttributeTypes(ctx), attributes), nil
+}
+
+func (t DomainsType) ValueType(ctx context.Context) attr.Value {
+	return DomainsValue{}
+}
+
+var _ basetypes.ObjectValuable = DomainsValue{}
+
+type DomainsValue struct {
+	Certificate basetypes.ObjectValue `tfsdk:"certificate"`
+	Name        basetypes.StringValue `tfsdk:"name"`
+	state       attr.ValueState
+}
+
+func (v DomainsValue) ToTerraformValue(ctx context.Context) (tftypes.Value, error) {
+	attrTypes := make(map[string]tftypes.Type, 2)
+
+	var val tftypes.Value
+	var err error
+
+	attrTypes["certificate"] = basetypes.ObjectType{
+		AttrTypes: CertificateValue{}.AttributeTypes(ctx),
+	}.TerraformType(ctx)
+	attrTypes["name"] = basetypes.StringType{}.TerraformType(ctx)
+
+	objectType := tftypes.Object{AttributeTypes: attrTypes}
+
+	switch v.state {
+	case attr.ValueStateKnown:
+		vals := make(map[string]tftypes.Value, 2)
+
+		val, err = v.Certificate.ToTerraformValue(ctx)
+		if err != nil {
+			return tftypes.NewValue(objectType, tftypes.UnknownValue), err
+		}
+
+		vals["certificate"] = val
+
+		val, err = v.Name.ToTerraformValue(ctx)
+		if err != nil {
+			return tftypes.NewValue(objectType, tftypes.UnknownValue), err
+		}
+
+		vals["name"] = val
+
+		if err := tftypes.ValidateValue(objectType, vals); err != nil {
+			return tftypes.NewValue(objectType, tftypes.UnknownValue), err
+		}
+
+		return tftypes.NewValue(objectType, vals), nil
+	case attr.ValueStateNull:
+		return tftypes.NewValue(objectType, nil), nil
+	case attr.ValueStateUnknown:
+		return tftypes.NewValue(objectType, tftypes.UnknownValue), nil
+	default:
+		panic(fmt.Sprintf("unhandled Object state in ToTerraformValue: %s", v.state))
+	}
+}
+
+func (v DomainsValue) IsNull() bool {
+	return v.state == attr.ValueStateNull
+}
+
+func (v DomainsValue) IsUnknown() bool {
+	return v.state == attr.ValueStateUnknown
+}
+
+func (v DomainsValue) String() string {
+	return "DomainsValue"
+}
+
+func (v DomainsValue) ToObjectValue(ctx context.Context) (basetypes.ObjectValue, diag.Diagnostics) {
+	var diags diag.Diagnostics
+
+	var certificate basetypes.ObjectValue
+
+	if v.Certificate.IsNull() {
+		certificate = types.ObjectNull(
+			CertificateValue{}.AttributeTypes(ctx),
+		)
+	}
+
+	if v.Certificate.IsUnknown() {
+		certificate = types.ObjectUnknown(
+			CertificateValue{}.AttributeTypes(ctx),
+		)
+	}
+
+	if !v.Certificate.IsNull() && !v.Certificate.IsUnknown() {
+		certificate = types.ObjectValueMust(
+			CertificateValue{}.AttributeTypes(ctx),
+			v.Certificate.Attributes(),
+		)
+	}
+
+	attributeTypes := map[string]attr.Type{
+		"certificate": basetypes.ObjectType{
+			AttrTypes: CertificateValue{}.AttributeTypes(ctx),
+		},
+		"name": basetypes.StringType{},
+	}
+
+	if v.IsNull() {
+		return types.ObjectNull(attributeTypes), diags
+	}
+
+	if v.IsUnknown() {
+		return types.ObjectUnknown(attributeTypes), diags
+	}
+
+	objVal, diags := types.ObjectValue(
+		attributeTypes,
+		map[string]attr.Value{
+			"certificate": certificate,
+			"name":        v.Name,
+		})
+
+	return objVal, diags
+}
+
+func (v DomainsValue) Equal(o attr.Value) bool {
+	other, ok := o.(DomainsValue)
+
+	if !ok {
+		return false
+	}
+
+	if v.state != other.state {
+		return false
+	}
+
+	if v.state != attr.ValueStateKnown {
+		return true
+	}
+
+	if !v.Certificate.Equal(other.Certificate) {
+		return false
+	}
+
+	if !v.Name.Equal(other.Name) {
+		return false
+	}
+
+	return true
+}
+
+func (v DomainsValue) Type(ctx context.Context) attr.Type {
+	return DomainsType{
+		basetypes.ObjectType{
+			AttrTypes: v.AttributeTypes(ctx),
+		},
+	}
+}
+
+func (v DomainsValue) AttributeTypes(ctx context.Context) map[string]attr.Type {
+	return map[string]attr.Type{
+		"certificate": basetypes.ObjectType{
+			AttrTypes: CertificateValue{}.AttributeTypes(ctx),
+		},
+		"name": basetypes.StringType{},
+	}
+}
+
+var _ basetypes.ObjectTypable = CertificateType{}
+
+type CertificateType struct {
+	basetypes.ObjectType
+}
+
+func (t CertificateType) Equal(o attr.Type) bool {
+	other, ok := o.(CertificateType)
+
+	if !ok {
+		return false
+	}
+
+	return t.ObjectType.Equal(other.ObjectType)
+}
+
+func (t CertificateType) String() string {
+	return "CertificateType"
+}
+
+func (t CertificateType) ValueFromObject(ctx context.Context, in basetypes.ObjectValue) (basetypes.ObjectValuable, diag.Diagnostics) {
+	var diags diag.Diagnostics
+
+	attributes := in.Attributes()
+
+	nameAttribute, ok := attributes["name"]
+
+	if !ok {
+		diags.AddError(
+			"Attribute Missing",
+			`name is missing from object`)
+
+		return nil, diags
+	}
+
+	nameVal, ok := nameAttribute.(basetypes.StringValue)
+
+	if !ok {
+		diags.AddError(
+			"Attribute Wrong Type",
+			fmt.Sprintf(`name expected to be basetypes.StringValue, was: %T`, nameAttribute))
+	}
+
+	uuidAttribute, ok := attributes["uuid"]
+
+	if !ok {
+		diags.AddError(
+			"Attribute Missing",
+			`uuid is missing from object`)
+
+		return nil, diags
+	}
+
+	uuidVal, ok := uuidAttribute.(basetypes.StringValue)
+
+	if !ok {
+		diags.AddError(
+			"Attribute Wrong Type",
+			fmt.Sprintf(`uuid expected to be basetypes.StringValue, was: %T`, uuidAttribute))
+	}
+
+	if diags.HasError() {
+		return nil, diags
+	}
+
+	return CertificateValue{
+		Name:  nameVal,
+		Uuid:  uuidVal,
+		state: attr.ValueStateKnown,
+	}, diags
+}
+
+func NewCertificateValueNull() CertificateValue {
+	return CertificateValue{
+		state: attr.ValueStateNull,
+	}
+}
+
+func NewCertificateValueUnknown() CertificateValue {
+	return CertificateValue{
+		state: attr.ValueStateUnknown,
+	}
+}
+
+func NewCertificateValue(attributeTypes map[string]attr.Type, attributes map[string]attr.Value) (CertificateValue, diag.Diagnostics) {
+	var diags diag.Diagnostics
+
+	// Reference: https://github.com/hashicorp/terraform-plugin-framework/issues/521
+	ctx := context.Background()
+
+	for name, attributeType := range attributeTypes {
+		attribute, ok := attributes[name]
+
+		if !ok {
+			diags.AddError(
+				"Missing CertificateValue Attribute Value",
+				"While creating a CertificateValue value, a missing attribute value was detected. "+
+					"A CertificateValue must contain values for all attributes, even if null or unknown. "+
+					"This is always an issue with the provider and should be reported to the provider developers.\n\n"+
+					fmt.Sprintf("CertificateValue Attribute Name (%s) Expected Type: %s", name, attributeType.String()),
+			)
+
+			continue
+		}
+
+		if !attributeType.Equal(attribute.Type(ctx)) {
+			diags.AddError(
+				"Invalid CertificateValue Attribute Type",
+				"While creating a CertificateValue value, an invalid attribute value was detected. "+
+					"A CertificateValue must use a matching attribute type for the value. "+
+					"This is always an issue with the provider and should be reported to the provider developers.\n\n"+
+					fmt.Sprintf("CertificateValue Attribute Name (%s) Expected Type: %s\n", name, attributeType.String())+
+					fmt.Sprintf("CertificateValue Attribute Name (%s) Given Type: %s", name, attribute.Type(ctx)),
+			)
+		}
+	}
+
+	for name := range attributes {
+		_, ok := attributeTypes[name]
+
+		if !ok {
+			diags.AddError(
+				"Extra CertificateValue Attribute Value",
+				"While creating a CertificateValue value, an extra attribute value was detected. "+
+					"A CertificateValue must not contain values beyond the expected attribute types. "+
+					"This is always an issue with the provider and should be reported to the provider developers.\n\n"+
+					fmt.Sprintf("Extra CertificateValue Attribute Name: %s", name),
+			)
+		}
+	}
+
+	if diags.HasError() {
+		return NewCertificateValueUnknown(), diags
+	}
+
+	nameAttribute, ok := attributes["name"]
+
+	if !ok {
+		diags.AddError(
+			"Attribute Missing",
+			`name is missing from object`)
+
+		return NewCertificateValueUnknown(), diags
+	}
+
+	nameVal, ok := nameAttribute.(basetypes.StringValue)
+
+	if !ok {
+		diags.AddError(
+			"Attribute Wrong Type",
+			fmt.Sprintf(`name expected to be basetypes.StringValue, was: %T`, nameAttribute))
+	}
+
+	uuidAttribute, ok := attributes["uuid"]
+
+	if !ok {
+		diags.AddError(
+			"Attribute Missing",
+			`uuid is missing from object`)
+
+		return NewCertificateValueUnknown(), diags
+	}
+
+	uuidVal, ok := uuidAttribute.(basetypes.StringValue)
+
+	if !ok {
+		diags.AddError(
+			"Attribute Wrong Type",
+			fmt.Sprintf(`uuid expected to be basetypes.StringValue, was: %T`, uuidAttribute))
+	}
+
+	if diags.HasError() {
+		return NewCertificateValueUnknown(), diags
+	}
+
+	return CertificateValue{
+		Name:  nameVal,
+		Uuid:  uuidVal,
+		state: attr.ValueStateKnown,
+	}, diags
+}
+
+func NewCertificateValueMust(attributeTypes map[string]attr.Type, attributes map[string]attr.Value) CertificateValue {
+	object, diags := NewCertificateValue(attributeTypes, attributes)
+
+	if diags.HasError() {
+		// This could potentially be added to the diag package.
+		diagsStrings := make([]string, 0, len(diags))
+
+		for _, diagnostic := range diags {
+			diagsStrings = append(diagsStrings, fmt.Sprintf(
+				"%s | %s | %s",
+				diagnostic.Severity(),
+				diagnostic.Summary(),
+				diagnostic.Detail()))
+		}
+
+		panic("NewCertificateValueMust received error(s): " + strings.Join(diagsStrings, "\n"))
+	}
+
+	return object
+}
+
+func (t CertificateType) ValueFromTerraform(ctx context.Context, in tftypes.Value) (attr.Value, error) {
+	if in.Type() == nil {
+		return NewCertificateValueNull(), nil
+	}
+
+	if !in.Type().Equal(t.TerraformType(ctx)) {
+		return nil, fmt.Errorf("expected %s, got %s", t.TerraformType(ctx), in.Type())
+	}
+
+	if !in.IsKnown() {
+		return NewCertificateValueUnknown(), nil
+	}
+
+	if in.IsNull() {
+		return NewCertificateValueNull(), nil
+	}
+
+	attributes := map[string]attr.Value{}
+
+	val := map[string]tftypes.Value{}
+
+	err := in.As(&val)
+	if err != nil {
+		return nil, err
+	}
+
+	for k, v := range val {
+		a, err := t.AttrTypes[k].ValueFromTerraform(ctx, v)
+		if err != nil {
+			return nil, err
+		}
+
+		attributes[k] = a
+	}
+
+	return NewCertificateValueMust(CertificateValue{}.AttributeTypes(ctx), attributes), nil
+}
+
+func (t CertificateType) ValueType(ctx context.Context) attr.Value {
+	return CertificateValue{}
+}
+
+var _ basetypes.ObjectValuable = CertificateValue{}
+
+type CertificateValue struct {
+	Name  basetypes.StringValue `tfsdk:"name"`
+	Uuid  basetypes.StringValue `tfsdk:"uuid"`
+	state attr.ValueState
+}
+
+func (v CertificateValue) ToTerraformValue(ctx context.Context) (tftypes.Value, error) {
+	attrTypes := make(map[string]tftypes.Type, 2)
+
+	var val tftypes.Value
+	var err error
+
+	attrTypes["name"] = basetypes.StringType{}.TerraformType(ctx)
+	attrTypes["uuid"] = basetypes.StringType{}.TerraformType(ctx)
+
+	objectType := tftypes.Object{AttributeTypes: attrTypes}
+
+	switch v.state {
+	case attr.ValueStateKnown:
+		vals := make(map[string]tftypes.Value, 2)
+
+		val, err = v.Name.ToTerraformValue(ctx)
+		if err != nil {
+			return tftypes.NewValue(objectType, tftypes.UnknownValue), err
+		}
+
+		vals["name"] = val
+
+		val, err = v.Uuid.ToTerraformValue(ctx)
+		if err != nil {
+			return tftypes.NewValue(objectType, tftypes.UnknownValue), err
+		}
+
+		vals["uuid"] = val
+
+		if err := tftypes.ValidateValue(objectType, vals); err != nil {
+			return tftypes.NewValue(objectType, tftypes.UnknownValue), err
+		}
+
+		return tftypes.NewValue(objectType, vals), nil
+	case attr.ValueStateNull:
+		return tftypes.NewValue(objectType, nil), nil
+	case attr.ValueStateUnknown:
+		return tftypes.NewValue(objectType, tftypes.UnknownValue), nil
+	default:
+		panic(fmt.Sprintf("unhandled Object state in ToTerraformValue: %s", v.state))
+	}
+}
+
+func (v CertificateValue) IsNull() bool {
+	return v.state == attr.ValueStateNull
+}
+
+func (v CertificateValue) IsUnknown() bool {
+	return v.state == attr.ValueStateUnknown
+}
+
+func (v CertificateValue) String() string {
+	return "CertificateValue"
+}
+
+func (v CertificateValue) ToObjectValue(ctx context.Context) (basetypes.ObjectValue, diag.Diagnostics) {
+	var diags diag.Diagnostics
+
+	attributeTypes := map[string]attr.Type{
+		"name": basetypes.StringType{},
+		"uuid": basetypes.StringType{},
+	}
+
+	if v.IsNull() {
+		return types.ObjectNull(attributeTypes), diags
+	}
+
+	if v.IsUnknown() {
+		return types.ObjectUnknown(attributeTypes), diags
+	}
+
+	objVal, diags := types.ObjectValue(
+		attributeTypes,
+		map[string]attr.Value{
+			"name": v.Name,
+			"uuid": v.Uuid,
+		})
+
+	return objVal, diags
+}
+
+func (v CertificateValue) Equal(o attr.Value) bool {
+	other, ok := o.(CertificateValue)
+
+	if !ok {
+		return false
+	}
+
+	if v.state != other.state {
+		return false
+	}
+
+	if v.state != attr.ValueStateKnown {
+		return true
+	}
+
+	if !v.Name.Equal(other.Name) {
+		return false
+	}
+
+	if !v.Uuid.Equal(other.Uuid) {
+		return false
+	}
+
+	return true
+}
+
+func (v CertificateValue) Type(ctx context.Context) attr.Type {
+	return CertificateType{
+		basetypes.ObjectType{
+			AttrTypes: v.AttributeTypes(ctx),
+		},
+	}
+}
+
+func (v CertificateValue) AttributeTypes(ctx context.Context) map[string]attr.Type {
+	return map[string]attr.Type{
+		"name": basetypes.StringType{},
+		"uuid": basetypes.StringType{},
+	}
+}
+
+var _ basetypes.ObjectTypable = ServicesType{}
+
+type ServicesType struct {
+	basetypes.ObjectType
+}
+
+func (t ServicesType) Equal(o attr.Type) bool {
+	other, ok := o.(ServicesType)
+
+	if !ok {
+		return false
+	}
+
+	return t.ObjectType.Equal(other.ObjectType)
+}
+
+func (t ServicesType) String() string {
+	return "ServicesType"
+}
+
+func (t ServicesType) ValueFromObject(ctx context.Context, in basetypes.ObjectValue) (basetypes.ObjectValuable, diag.Diagnostics) {
+	var diags diag.Diagnostics
+
+	attributes := in.Attributes()
+
+	destinationPortAttribute, ok := attributes["destination_port"]
+
+	if !ok {
+		diags.AddError(
+			"Attribute Missing",
+			`destination_port is missing from object`)
+
+		return nil, diags
+	}
+
+	destinationPortVal, ok := destinationPortAttribute.(basetypes.Int64Value)
+
+	if !ok {
+		diags.AddError(
+			"Attribute Wrong Type",
+			fmt.Sprintf(`destination_port expected to be basetypes.Int64Value, was: %T`, destinationPortAttribute))
+	}
+
+	handlersAttribute, ok := attributes["handlers"]
+
+	if !ok {
+		diags.AddError(
+			"Attribute Missing",
+			`handlers is missing from object`)
+
+		return nil, diags
+	}
+
+	handlersVal, ok := handlersAttribute.(basetypes.ListValue)
+
+	if !ok {
+		diags.AddError(
+			"Attribute Wrong Type",
+			fmt.Sprintf(`handlers expected to be basetypes.ListValue, was: %T`, handlersAttribute))
+	}
+
+	portAttribute, ok := attributes["port"]
+
+	if !ok {
+		diags.AddError(
+			"Attribute Missing",
+			`port is missing from object`)
+
+		return nil, diags
+	}
+
+	portVal, ok := portAttribute.(basetypes.Int64Value)
+
+	if !ok {
+		diags.AddError(
+			"Attribute Wrong Type",
+			fmt.Sprintf(`port expected to be basetypes.Int64Value, was: %T`, portAttribute))
+	}
+
+	if diags.HasError() {
+		return nil, diags
+	}
+
+	return ServicesValue{
+		DestinationPort: destinationPortVal,
+		Handlers:        handlersVal,
+		Port:            portVal,
+		state:           attr.ValueStateKnown,
+	}, diags
+}
+
+func NewServicesValueNull() ServicesValue {
+	return ServicesValue{
+		state: attr.ValueStateNull,
+	}
+}
+
+func NewServicesValueUnknown() ServicesValue {
+	return ServicesValue{
+		state: attr.ValueStateUnknown,
+	}
+}
+
+func NewServicesValue(attributeTypes map[string]attr.Type, attributes map[string]attr.Value) (ServicesValue, diag.Diagnostics) {
+	var diags diag.Diagnostics
+
+	// Reference: https://github.com/hashicorp/terraform-plugin-framework/issues/521
+	ctx := context.Background()
+
+	for name, attributeType := range attributeTypes {
+		attribute, ok := attributes[name]
+
+		if !ok {
+			diags.AddError(
+				"Missing ServicesValue Attribute Value",
+				"While creating a ServicesValue value, a missing attribute value was detected. "+
+					"A ServicesValue must contain values for all attributes, even if null or unknown. "+
+					"This is always an issue with the provider and should be reported to the provider developers.\n\n"+
+					fmt.Sprintf("ServicesValue Attribute Name (%s) Expected Type: %s", name, attributeType.String()),
+			)
+
+			continue
+		}
+
+		if !attributeType.Equal(attribute.Type(ctx)) {
+			diags.AddError(
+				"Invalid ServicesValue Attribute Type",
+				"While creating a ServicesValue value, an invalid attribute value was detected. "+
+					"A ServicesValue must use a matching attribute type for the value. "+
+					"This is always an issue with the provider and should be reported to the provider developers.\n\n"+
+					fmt.Sprintf("ServicesValue Attribute Name (%s) Expected Type: %s\n", name, attributeType.String())+
+					fmt.Sprintf("ServicesValue Attribute Name (%s) Given Type: %s", name, attribute.Type(ctx)),
+			)
+		}
+	}
+
+	for name := range attributes {
+		_, ok := attributeTypes[name]
+
+		if !ok {
+			diags.AddError(
+				"Extra ServicesValue Attribute Value",
+				"While creating a ServicesValue value, an extra attribute value was detected. "+
+					"A ServicesValue must not contain values beyond the expected attribute types. "+
+					"This is always an issue with the provider and should be reported to the provider developers.\n\n"+
+					fmt.Sprintf("Extra ServicesValue Attribute Name: %s", name),
+			)
+		}
+	}
+
+	if diags.HasError() {
+		return NewServicesValueUnknown(), diags
+	}
+
+	destinationPortAttribute, ok := attributes["destination_port"]
+
+	if !ok {
+		diags.AddError(
+			"Attribute Missing",
+			`destination_port is missing from object`)
+
+		return NewServicesValueUnknown(), diags
+	}
+
+	destinationPortVal, ok := destinationPortAttribute.(basetypes.Int64Value)
+
+	if !ok {
+		diags.AddError(
+			"Attribute Wrong Type",
+			fmt.Sprintf(`destination_port expected to be basetypes.Int64Value, was: %T`, destinationPortAttribute))
+	}
+
+	handlersAttribute, ok := attributes["handlers"]
+
+	if !ok {
+		diags.AddError(
+			"Attribute Missing",
+			`handlers is missing from object`)
+
+		return NewServicesValueUnknown(), diags
+	}
+
+	handlersVal, ok := handlersAttribute.(basetypes.ListValue)
+
+	if !ok {
+		diags.AddError(
+			"Attribute Wrong Type",
+			fmt.Sprintf(`handlers expected to be basetypes.ListValue, was: %T`, handlersAttribute))
+	}
+
+	portAttribute, ok := attributes["port"]
+
+	if !ok {
+		diags.AddError(
+			"Attribute Missing",
+			`port is missing from object`)
+
+		return NewServicesValueUnknown(), diags
+	}
+
+	portVal, ok := portAttribute.(basetypes.Int64Value)
+
+	if !ok {
+		diags.AddError(
+			"Attribute Wrong Type",
+			fmt.Sprintf(`port expected to be basetypes.Int64Value, was: %T`, portAttribute))
+	}
+
+	if diags.HasError() {
+		return NewServicesValueUnknown(), diags
+	}
+
+	return ServicesValue{
+		DestinationPort: destinationPortVal,
+		Handlers:        handlersVal,
+		Port:            portVal,
+		state:           attr.ValueStateKnown,
+	}, diags
+}
+
+func NewServicesValueMust(attributeTypes map[string]attr.Type, attributes map[string]attr.Value) ServicesValue {
+	object, diags := NewServicesValue(attributeTypes, attributes)
+
+	if diags.HasError() {
+		// This could potentially be added to the diag package.
+		diagsStrings := make([]string, 0, len(diags))
+
+		for _, diagnostic := range diags {
+			diagsStrings = append(diagsStrings, fmt.Sprintf(
+				"%s | %s | %s",
+				diagnostic.Severity(),
+				diagnostic.Summary(),
+				diagnostic.Detail()))
+		}
+
+		panic("NewServicesValueMust received error(s): " + strings.Join(diagsStrings, "\n"))
+	}
+
+	return object
+}
+
+func (t ServicesType) ValueFromTerraform(ctx context.Context, in tftypes.Value) (attr.Value, error) {
+	if in.Type() == nil {
+		return NewServicesValueNull(), nil
+	}
+
+	if !in.Type().Equal(t.TerraformType(ctx)) {
+		return nil, fmt.Errorf("expected %s, got %s", t.TerraformType(ctx), in.Type())
+	}
+
+	if !in.IsKnown() {
+		return NewServicesValueUnknown(), nil
+	}
+
+	if in.IsNull() {
+		return NewServicesValueNull(), nil
+	}
+
+	attributes := map[string]attr.Value{}
+
+	val := map[string]tftypes.Value{}
+
+	err := in.As(&val)
+	if err != nil {
+		return nil, err
+	}
+
+	for k, v := range val {
+		a, err := t.AttrTypes[k].ValueFromTerraform(ctx, v)
+		if err != nil {
+			return nil, err
+		}
+
+		attributes[k] = a
+	}
+
+	return NewServicesValueMust(ServicesValue{}.AttributeTypes(ctx), attributes), nil
+}
+
+func (t ServicesType) ValueType(ctx context.Context) attr.Value {
+	return ServicesValue{}
+}
+
+var _ basetypes.ObjectValuable = ServicesValue{}
+
+type ServicesValue struct {
+	DestinationPort basetypes.Int64Value `tfsdk:"destination_port"`
+	Handlers        basetypes.ListValue  `tfsdk:"handlers"`
+	Port            basetypes.Int64Value `tfsdk:"port"`
+	state           attr.ValueState
+}
+
+func (v ServicesValue) ToTerraformValue(ctx context.Context) (tftypes.Value, error) {
+	attrTypes := make(map[string]tftypes.Type, 3)
+
+	var val tftypes.Value
+	var err error
+
+	attrTypes["destination_port"] = basetypes.Int64Type{}.TerraformType(ctx)
+	attrTypes["handlers"] = basetypes.ListType{
+		ElemType: types.StringType,
+	}.TerraformType(ctx)
+	attrTypes["port"] = basetypes.Int64Type{}.TerraformType(ctx)
+
+	objectType := tftypes.Object{AttributeTypes: attrTypes}
+
+	switch v.state {
+	case attr.ValueStateKnown:
+		vals := make(map[string]tftypes.Value, 3)
+
+		val, err = v.DestinationPort.ToTerraformValue(ctx)
+		if err != nil {
+			return tftypes.NewValue(objectType, tftypes.UnknownValue), err
+		}
+
+		vals["destination_port"] = val
+
+		val, err = v.Handlers.ToTerraformValue(ctx)
+		if err != nil {
+			return tftypes.NewValue(objectType, tftypes.UnknownValue), err
+		}
+
+		vals["handlers"] = val
+
+		val, err = v.Port.ToTerraformValue(ctx)
+		if err != nil {
+			return tftypes.NewValue(objectType, tftypes.UnknownValue), err
+		}
+
+		vals["port"] = val
+
+		if err := tftypes.ValidateValue(objectType, vals); err != nil {
+			return tftypes.NewValue(objectType, tftypes.UnknownValue), err
+		}
+
+		return tftypes.NewValue(objectType, vals), nil
+	case attr.ValueStateNull:
+		return tftypes.NewValue(objectType, nil), nil
+	case attr.ValueStateUnknown:
+		return tftypes.NewValue(objectType, tftypes.UnknownValue), nil
+	default:
+		panic(fmt.Sprintf("unhandled Object state in ToTerraformValue: %s", v.state))
+	}
+}
+
+func (v ServicesValue) IsNull() bool {
+	return v.state == attr.ValueStateNull
+}
+
+func (v ServicesValue) IsUnknown() bool {
+	return v.state == attr.ValueStateUnknown
+}
+
+func (v ServicesValue) String() string {
+	return "ServicesValue"
+}
+
+func (v ServicesValue) ToObjectValue(ctx context.Context) (basetypes.ObjectValue, diag.Diagnostics) {
+	var diags diag.Diagnostics
+
+	var handlersVal basetypes.ListValue
+	switch {
+	case v.Handlers.IsUnknown():
+		handlersVal = types.ListUnknown(types.StringType)
+	case v.Handlers.IsNull():
+		handlersVal = types.ListNull(types.StringType)
+	default:
+		var d diag.Diagnostics
+		handlersVal, d = types.ListValue(types.StringType, v.Handlers.Elements())
+		diags.Append(d...)
+	}
+
+	if diags.HasError() {
+		return types.ObjectUnknown(map[string]attr.Type{
+			"destination_port": basetypes.Int64Type{},
+			"handlers": basetypes.ListType{
+				ElemType: types.StringType,
+			},
+			"port": basetypes.Int64Type{},
+		}), diags
+	}
+
+	attributeTypes := map[string]attr.Type{
+		"destination_port": basetypes.Int64Type{},
+		"handlers": basetypes.ListType{
+			ElemType: types.StringType,
+		},
+		"port": basetypes.Int64Type{},
+	}
+
+	if v.IsNull() {
+		return types.ObjectNull(attributeTypes), diags
+	}
+
+	if v.IsUnknown() {
+		return types.ObjectUnknown(attributeTypes), diags
+	}
+
+	objVal, diags := types.ObjectValue(
+		attributeTypes,
+		map[string]attr.Value{
+			"destination_port": v.DestinationPort,
+			"handlers":         handlersVal,
+			"port":             v.Port,
+		})
+
+	return objVal, diags
+}
+
+func (v ServicesValue) Equal(o attr.Value) bool {
+	other, ok := o.(ServicesValue)
+
+	if !ok {
+		return false
+	}
+
+	if v.state != other.state {
+		return false
+	}
+
+	if v.state != attr.ValueStateKnown {
+		return true
+	}
+
+	if !v.DestinationPort.Equal(other.DestinationPort) {
+		return false
+	}
+
+	if !v.Handlers.Equal(other.Handlers) {
+		return false
+	}
+
+	if !v.Port.Equal(other.Port) {
+		return false
+	}
+
+	return true
+}
+
+func (v ServicesValue) Type(ctx context.Context) attr.Type {
+	return ServicesType{
+		basetypes.ObjectType{
+			AttrTypes: v.AttributeTypes(ctx),
+		},
+	}
+}
+
+func (v ServicesValue) AttributeTypes(ctx context.Context) map[string]attr.Type {
+	return map[string]attr.Type{
+		"destination_port": basetypes.Int64Type{},
+		"handlers": basetypes.ListType{
+			ElemType: types.StringType,
+		},
+		"port": basetypes.Int64Type{},
+	}
+}

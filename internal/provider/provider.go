@@ -154,7 +154,7 @@ func (p *UnikraftCloudProvider) Configure(ctx context.Context, req provider.Conf
 		unikraftcloud.WithToken(token),
 	)
 
-	clients := map[string]any{
+	resourceClients := map[string]any{
 		"instances":    client.Instances(),
 		"certificates": client.Certificates(),
 		"volumes":      client.Volumes(),
@@ -163,7 +163,7 @@ func (p *UnikraftCloudProvider) Configure(ctx context.Context, req provider.Conf
 		"services":     client.Services(),
 	}
 	resp.DataSourceData = client.Instances()
-	resp.ResourceData = clients
+	resp.ResourceData = resourceClients
 }
 
 // Resources describes the provider data model.
@@ -172,6 +172,7 @@ func (p *UnikraftCloudProvider) Resources(ctx context.Context) []func() resource
 		iresource.NewInstanceResource,
 		iresource.NewCertificateResource,
 		iresource.NewVolumeResource,
+		iresource.NewServiceGroupResource,
 	}
 }
 
