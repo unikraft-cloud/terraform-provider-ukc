@@ -1,3 +1,3 @@
-provider "unikraft-cloud" {
+provider "ukc" {
   metro = "fra0"
 }
