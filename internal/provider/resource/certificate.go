@@ -17,7 +17,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
-	"sdk.kraft.cloud/certificates"
+
+	"unikraft.com/cloud/sdk/platform"
 )
 
 func NewCertificateResource() resource.Resource {
@@ -26,7 +27,7 @@ func NewCertificateResource() resource.Resource {
 
 // CertificateResource defines the resource implementation.
 type CertificateResource struct {
-	client certificates.CertificatesService
+	client platform.Client
 }
 
 var (
@@ -145,33 +146,16 @@ func (r *CertificateResource) Configure(ctx context.Context, req resource.Config
 		return
 	}
 
-	// Handle the map of clients from the provider
-	clients, ok := req.ProviderData.(map[string]any)
+	client, ok := req.ProviderData.(platform.Client)
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Resource Configure Type",
-			fmt.Sprintf("Expected map[string]any, got: %T. Please report this issue to the provider developers.", req.ProviderData),
+			fmt.Sprintf("Expected platform.Client, got: %T. Please report this issue to the provider developers.", req.ProviderData),
 		)
 		return
 	}
 
-	certificatesClient, exists := clients["certificates"]
-	if !exists {
-		resp.Diagnostics.AddError(
-			"Missing Certificates Client",
-			"Certificates client not found in provider data",
-		)
-		return
-	}
-
-	r.client, ok = certificatesClient.(certificates.CertificatesService)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Invalid Certificates Client Type",
-			fmt.Sprintf("Expected certificates.CertificatesService, got: %T", certificatesClient),
-		)
-		return
-	}
+	r.client = client
 }
 
 func (r *CertificateResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -183,14 +167,19 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 		return
 	}
 
-	crt := certificates.CreateRequest{
-		Name:  data.Name.ValueString(),
-		CN:    data.Cn.ValueString(),
+	crt := platform.CreateCertificateRequest{
+		Cn:    data.Cn.ValueString(),
 		Chain: data.Chain.ValueString(),
-		PKey:  data.Pkey.ValueString(),
+		Pkey:  data.Pkey.ValueString(),
 	}
 
-	crtRaw, err := r.client.Create(ctx, &crt)
+	// Name is optional in new SDK
+	if !data.Name.IsNull() && !data.Name.IsUnknown() {
+		name := data.Name.ValueString()
+		crt.Name = &name
+	}
+
+	crtResp, err := r.client.CreateCertificate(ctx, crt)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Client Error",
@@ -199,7 +188,7 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 		return
 	}
 
-	if len(crtRaw.Data.Entries) == 0 {
+	if crtResp == nil || crtResp.Data == nil || len(crtResp.Data.Certificates) == 0 {
 		resp.Diagnostics.AddError(
 			"API Error",
 			"No certificate returned from create operation",
@@ -207,18 +196,28 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 		return
 	}
 
-	crts := crtRaw.Data.Entries[0]
+	crts := crtResp.Data.Certificates[0]
 
-	// Set the basic fields from create response (CreateResponseItem only has UUID and Name)
-	data.UUID = types.StringValue(crts.UUID)
-	data.Name = types.StringValue(crts.Name)
+	// Set the basic fields from create response
+	if crts.Uuid != nil {
+		data.UUID = types.StringValue(*crts.Uuid)
+	} else {
+		resp.Diagnostics.AddError(
+			"API Error",
+			"Certificate UUID not returned from create operation",
+		)
+		return
+	}
+	if crts.Name != nil {
+		data.Name = types.StringValue(*crts.Name)
+	}
 
 	// Set response-level fields
-	data.Status = types.StringValue(crtRaw.Status)
-	data.Message = types.StringValue(crtRaw.Message)
+	data.Status = types.StringValue(crtResp.Status)
+	data.Message = types.StringValue(crtResp.Message)
 
-	// Get full certificate details since CreateResponseItem has limited fields
-	crtFullRaw, err := r.client.Get(ctx, data.UUID.ValueString())
+	// Get full certificate details
+	crtFullResp, err := r.client.GetCertificateByUUID(ctx, *crts.Uuid)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Client Error",
@@ -227,7 +226,7 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 		return
 	}
 
-	if len(crtFullRaw.Data.Entries) == 0 {
+	if crtFullResp == nil || crtFullResp.Data == nil || len(crtFullResp.Data.Certificates) == 0 {
 		resp.Diagnostics.AddError(
 			"API Error",
 			"Certificate not found after creation",
@@ -235,19 +234,29 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 		return
 	}
 
-	crtFull := crtFullRaw.Data.Entries[0]
+	crtFull := crtFullResp.Data.Certificates[0]
 
-	// Create the data structure with certificates list using GetResponseItem fields
-	certificatesList := []CertificatesValue{
-		{
-			CommonName: types.StringValue(crtFull.CommonName),
-			CreatedAt:  types.StringValue(crtFull.CreatedAt),
-			Name:       types.StringValue(crtFull.Name),
-			State:      types.StringValue(crtFull.State),
-			UUID:       types.StringValue(crtFull.UUID),
-			state:      attr.ValueStateKnown,
-		},
+	// Create the data structure with certificates list
+	certificatesList := []CertificatesValue{}
+	certValue := CertificatesValue{
+		state: attr.ValueStateKnown,
 	}
+	if crtFull.CommonName != nil {
+		certValue.CommonName = types.StringValue(*crtFull.CommonName)
+	}
+	if crtFull.CreatedAt != nil {
+		certValue.CreatedAt = types.StringValue(crtFull.CreatedAt.Format("2006-01-02T15:04:05.999999999Z07:00"))
+	}
+	if crtFull.Name != nil {
+		certValue.Name = types.StringValue(*crtFull.Name)
+	}
+	if crtFull.State != nil {
+		certValue.State = types.StringValue(string(*crtFull.State))
+	}
+	if crtFull.Uuid != nil {
+		certValue.UUID = types.StringValue(*crtFull.Uuid)
+	}
+	certificatesList = append(certificatesList, certValue)
 
 	var diags diag.Diagnostics
 	certificatesListValue, diags := types.ListValueFrom(ctx, CertificatesType{
@@ -279,8 +288,14 @@ func (r *CertificateResource) Read(ctx context.Context, req resource.ReadRequest
 	}
 
 	// Get current state from the API
-	crtRaw, err := r.client.Get(ctx, data.UUID.ValueString())
+	crtResp, err := r.client.GetCertificateByUUID(ctx, data.UUID.ValueString())
 	if err != nil {
+		// Check if error is 404 (certificate not found)
+		if strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "not found") {
+			// Certificate no longer exists, remove from state
+			resp.State.RemoveResource(ctx)
+			return
+		}
 		resp.Diagnostics.AddError(
 			"Client Error",
 			fmt.Sprintf("Failed to read certificate, got error: %v", err),
@@ -288,37 +303,50 @@ func (r *CertificateResource) Read(ctx context.Context, req resource.ReadRequest
 		return
 	}
 
-	// Check if certificate exists - Fix: Use Entries instead of Certificates
-	if len(crtRaw.Data.Entries) == 0 {
+	if crtResp == nil || crtResp.Data == nil || len(crtResp.Data.Certificates) == 0 {
 		// Certificate no longer exists, remove from state
 		resp.State.RemoveResource(ctx)
 		return
 	}
 
-	crts := crtRaw.Data.Entries[0]
+	crts := crtResp.Data.Certificates[0]
 
-	// Update the model with current state using GetResponseItem fields
-	data.UUID = types.StringValue(crts.UUID)
-	data.Name = types.StringValue(crts.Name)
+	// Update the model with current state
+	if crts.Uuid != nil {
+		data.UUID = types.StringValue(*crts.Uuid)
+	}
+	if crts.Name != nil {
+		data.Name = types.StringValue(*crts.Name)
+	}
 
 	// Set response-level fields
-	data.Status = types.StringValue(crtRaw.Status)
-	data.Message = types.StringValue(crtRaw.Message)
+	data.Status = types.StringValue(crtResp.Status)
+	data.Message = types.StringValue(crtResp.Message)
 
 	// Note: We typically don't update sensitive fields like chain and pkey from Read
 	// These should remain as they were set in the configuration
 
 	// Update the data structure with current certificate info
-	certificatesList := []CertificatesValue{
-		{
-			CommonName: types.StringValue(crts.CommonName),
-			CreatedAt:  types.StringValue(crts.CreatedAt),
-			Name:       types.StringValue(crts.Name),
-			State:      types.StringValue(crts.State),
-			UUID:       types.StringValue(crts.UUID),
-			state:      attr.ValueStateKnown,
-		},
+	certificatesList := []CertificatesValue{}
+	certValue := CertificatesValue{
+		state: attr.ValueStateKnown,
 	}
+	if crts.CommonName != nil {
+		certValue.CommonName = types.StringValue(*crts.CommonName)
+	}
+	if crts.CreatedAt != nil {
+		certValue.CreatedAt = types.StringValue(crts.CreatedAt.Format("2006-01-02T15:04:05.999999999Z07:00"))
+	}
+	if crts.Name != nil {
+		certValue.Name = types.StringValue(*crts.Name)
+	}
+	if crts.State != nil {
+		certValue.State = types.StringValue(string(*crts.State))
+	}
+	if crts.Uuid != nil {
+		certValue.UUID = types.StringValue(*crts.Uuid)
+	}
+	certificatesList = append(certificatesList, certValue)
 
 	var diags diag.Diagnostics
 	certificatesListValue, diags := types.ListValueFrom(ctx, CertificatesType{
@@ -357,7 +385,7 @@ func (r *CertificateResource) Delete(ctx context.Context, req resource.DeleteReq
 		return
 	}
 
-	_, err := r.client.Delete(ctx, data.UUID.ValueString())
+	_, err := r.client.DeleteCertificateByUUID(ctx, data.UUID.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Client Error",

@@ -23,8 +23,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	models "github.com/unikraft-cloud/terraform-provider-unikraft-cloud/internal/provider/model"
 
-	"sdk.kraft.cloud/instances"
-	"sdk.kraft.cloud/services"
+	"unikraft.com/cloud/sdk/platform"
 )
 
 func NewInstanceResource() resource.Resource {
@@ -33,7 +32,7 @@ func NewInstanceResource() resource.Resource {
 
 // InstanceResource defines the resource implementation.
 type InstanceResource struct {
-	client instances.InstancesService
+	client platform.Client
 }
 
 // Ensure InstanceResource satisfies various resource interfaces.
@@ -245,33 +244,16 @@ func (r *InstanceResource) Configure(ctx context.Context, req resource.Configure
 		return
 	}
 
-	// Handle the map of clients from the provider
-	clients, ok := req.ProviderData.(map[string]interface{})
+	client, ok := req.ProviderData.(platform.Client)
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Resource Configure Type",
-			fmt.Sprintf("Expected map[string]interface{}, got: %T. Please report this issue to the provider developers.", req.ProviderData),
+			fmt.Sprintf("Expected platform.Client, got: %T. Please report this issue to the provider developers.", req.ProviderData),
 		)
 		return
 	}
 
-	instancesClient, exists := clients["instances"]
-	if !exists {
-		resp.Diagnostics.AddError(
-			"Missing Instances Client",
-			"Instances client not found in provider data",
-		)
-		return
-	}
-
-	r.client, ok = instancesClient.(instances.InstancesService)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Invalid Instances Client Type",
-			fmt.Sprintf("Expected instances.InstancesService, got: %T", instancesClient),
-		)
-		return
-	}
+	r.client = client
 }
 
 // Create implements resource.Resource.
@@ -284,20 +266,19 @@ func (r *InstanceResource) Create(ctx context.Context, req resource.CreateReques
 		return
 	}
 
-	// TODO(antoineco): the SDK should be sending a null when this is unset,
-	// but currently sends 0 instead, which is invalid.
-	// Set a default client-side for now until this is addressed.
-	if data.MemoryMB.IsUnknown() || data.MemoryMB.IsNull() {
-		data.MemoryMB = types.Int64Value(128)
+	in := platform.CreateInstanceRequest{
+		Image: data.Image.ValueString(),
 	}
 
-	in := instances.CreateRequest{
-		Image:    data.Image.ValueString(),
-		MemoryMB: ptr(int(data.MemoryMB.ValueInt64())),
-		ServiceGroup: &instances.CreateRequestServiceGroup{
-			Services: make([]services.CreateRequestService, len(data.ServiceGroup.Services)),
-		},
-		Autostart: ptr(data.Autostart.ValueBool()),
+	// New SDK properly handles optional fields with pointers
+	if !data.MemoryMB.IsUnknown() && !data.MemoryMB.IsNull() {
+		memoryMB := data.MemoryMB.ValueInt64()
+		in.MemoryMb = &memoryMB
+	}
+
+	if !data.Autostart.IsUnknown() && !data.Autostart.IsNull() {
+		autostart := data.Autostart.ValueBool()
+		in.Autostart = &autostart
 	}
 
 	if !data.Args.IsNull() && !data.Args.IsUnknown() {
@@ -308,24 +289,28 @@ func (r *InstanceResource) Create(ctx context.Context, req resource.CreateReques
 		}
 	}
 
-	for i, svc := range data.ServiceGroup.Services {
-		in.ServiceGroup.Services[i].Port = int(svc.Port.ValueInt64())
+	if data.ServiceGroup != nil && len(data.ServiceGroup.Services) > 0 {
+		sgServices := make([]platform.Service, len(data.ServiceGroup.Services))
+		for i, svc := range data.ServiceGroup.Services {
+			port := uint32(svc.Port.ValueInt64())
+			sgServices[i].Port = port
 
-		in.ServiceGroup.Services[i].DestinationPort = ptr(int(svc.DestinationPort.ValueInt64()))
-		// TODO(antoineco): the SDK should be sending a null when this is unset,
-		// but currently sends 0 instead, which is invalid.
-		// Set a default client-side for now until this is addressed.
-		if svc.DestinationPort.IsUnknown() || svc.DestinationPort.IsNull() {
-			data.ServiceGroup.Services[i].DestinationPort = svc.Port
-			in.ServiceGroup.Services[i].DestinationPort = ptr(int(svc.Port.ValueInt64()))
-		}
-
-		if !svc.Handlers.IsUnknown() {
-			handlVals := make([]types.String, 0, len(svc.Handlers.Elements()))
-			resp.Diagnostics.Append(svc.Handlers.ElementsAs(ctx, &handlVals, false)...)
-			for _, v := range handlVals {
-				in.ServiceGroup.Services[i].Handlers = append(in.ServiceGroup.Services[i].Handlers, services.Handler(v.ValueString()))
+			// New SDK properly handles optional destination port with pointer
+			if !svc.DestinationPort.IsUnknown() && !svc.DestinationPort.IsNull() {
+				destPort := uint32(svc.DestinationPort.ValueInt64())
+				sgServices[i].DestinationPort = &destPort
 			}
+
+			if !svc.Handlers.IsUnknown() {
+				handlVals := make([]types.String, 0, len(svc.Handlers.Elements()))
+				resp.Diagnostics.Append(svc.Handlers.ElementsAs(ctx, &handlVals, false)...)
+				for _, v := range handlVals {
+					sgServices[i].Handlers = append(sgServices[i].Handlers, platform.ServiceHandlers(v.ValueString()))
+				}
+			}
+		}
+		in.ServiceGroup = &platform.CreateInstanceRequestServiceGroup{
+			Services: sgServices,
 		}
 	}
 
@@ -333,7 +318,7 @@ func (r *InstanceResource) Create(ctx context.Context, req resource.CreateReques
 		return
 	}
 
-	insRaw, err := r.client.Create(ctx, in)
+	insResp, err := r.client.CreateInstance(ctx, in)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Client Error",
@@ -341,18 +326,37 @@ func (r *InstanceResource) Create(ctx context.Context, req resource.CreateReques
 		)
 		return
 	}
-	ins := insRaw.Data.Entries[0]
 
-	data.UUID = types.StringValue(ins.UUID)
-	data.Name = types.StringValue(ins.Name)
-	if ins.ServiceGroup != nil && len(ins.ServiceGroup.Domains) > 0 {
-		data.FQDN = types.StringValue(ins.ServiceGroup.Domains[0].FQDN)
+	if insResp == nil || insResp.Data == nil || len(insResp.Data.Instances) == 0 {
+		resp.Diagnostics.AddError(
+			"Client Error",
+			"Empty response from create instance API",
+		)
+		return
 	}
-	data.PrivateIP = types.StringValue(ins.PrivateIP)
-	data.PrivateFQDN = types.StringValue(ins.PrivateFQDN)
+	ins := insResp.Data.Instances[0]
+
+	if ins.Uuid == nil {
+		resp.Diagnostics.AddError(
+			"Client Error",
+			"Instance UUID not returned by API",
+		)
+		return
+	}
+
+	data.UUID = types.StringValue(*ins.Uuid)
+	if ins.Name != nil {
+		data.Name = types.StringValue(*ins.Name)
+	}
+	if ins.ServiceGroup != nil && len(ins.ServiceGroup.Domains) > 0 && ins.ServiceGroup.Domains[0].Fqdn != nil {
+		data.FQDN = types.StringValue(*ins.ServiceGroup.Domains[0].Fqdn)
+	}
+	if ins.PrivateFqdn != nil {
+		data.PrivateFQDN = types.StringValue(*ins.PrivateFqdn)
+	}
 
 	// Not all attributes are returned by CreateInstance
-	insRawFull, err := r.client.Get(ctx, data.UUID.ValueString())
+	insFullResp, err := r.client.GetInstanceByUUID(ctx, *ins.Uuid, true)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Client Error",
@@ -360,7 +364,15 @@ func (r *InstanceResource) Create(ctx context.Context, req resource.CreateReques
 		)
 		return
 	}
-	insFull := insRawFull.Data.Entries[0]
+
+	if insFullResp == nil || insFullResp.Data == nil || len(insFullResp.Data.Instances) == 0 {
+		resp.Diagnostics.AddError(
+			"Client Error",
+			"Empty response from get instance API",
+		)
+		return
+	}
+	insFull := insFullResp.Data.Instances[0]
 
 	var diags diag.Diagnostics
 
@@ -373,37 +385,61 @@ func (r *InstanceResource) Create(ctx context.Context, req resource.CreateReques
 	//   When applying changes to unikraft-cloud_instance.xyz, provider produced an unexpected new value: .image:
 	//     was cty.StringVal("myimage:latest"), but now cty.StringVal("myimage@sha256:18a381f0062...").
 	//
-	data.State = types.StringValue(string(insFull.State))
-	data.CreatedAt = types.StringValue(insFull.CreatedAt)
-	data.MemoryMB = types.Int64Value(int64(insFull.MemoryMB))
-	data.BootTimeUS = types.Int64Value(int64(insFull.BootTimeUs))
-
-	if data.Args.IsNull() || data.Args.IsUnknown() {
-		data.Args, diags = types.ListValueFrom(ctx, types.StringType, insFull.Args)
-		resp.Diagnostics.Append(diags...)
+	if insFull.State != nil {
+		data.State = types.StringValue(string(*insFull.State))
+	}
+	if insFull.CreatedAt != nil {
+		data.CreatedAt = types.StringValue(insFull.CreatedAt.Format("2006-01-02T15:04:05.999999999Z07:00"))
+	}
+	if insFull.MemoryMb != nil {
+		data.MemoryMB = types.Int64Value(int64(*insFull.MemoryMb))
+	}
+	if insFull.BootTimeUs != nil {
+		data.BootTimeUS = types.Int64Value(int64(*insFull.BootTimeUs))
 	}
 
-	data.Env, diags = types.MapValueFrom(ctx, types.StringType, insFull.Env)
-	resp.Diagnostics.Append(diags...)
+	if data.Args.IsNull() || data.Args.IsUnknown() {
+		if insFull.Args != nil {
+			data.Args, diags = types.ListValueFrom(ctx, types.StringType, insFull.Args)
+			resp.Diagnostics.Append(diags...)
+		}
+	}
+
+	if insFull.Env != nil {
+		data.Env, diags = types.MapValueFrom(ctx, types.StringType, insFull.Env)
+		resp.Diagnostics.Append(diags...)
+	}
 
 	if data.ServiceGroup == nil {
 		data.ServiceGroup = &models.SvcGrpModel{}
 	}
 
 	if insFull.ServiceGroup != nil {
-		data.ServiceGroup.UUID = types.StringValue(insFull.ServiceGroup.UUID)
-		data.ServiceGroup.Name = types.StringValue(insFull.ServiceGroup.Name)
+		if insFull.ServiceGroup.Uuid != nil {
+			data.ServiceGroup.UUID = types.StringValue(*insFull.ServiceGroup.Uuid)
+		}
+		if insFull.ServiceGroup.Name != nil {
+			data.ServiceGroup.Name = types.StringValue(*insFull.ServiceGroup.Name)
+		}
 	}
 
-	netwIfaces := make([]models.NetwIfaceModel, len(insFull.NetworkInterfaces))
-	for i, net := range insFull.NetworkInterfaces {
-		netwIfaces[i].UUID = types.StringValue(net.UUID)
-		netwIfaces[i].Name = types.StringValue(insFull.Name)
-		netwIfaces[i].PrivateIP = types.StringValue(net.PrivateIP)
-		netwIfaces[i].MAC = types.StringValue(net.MAC)
+	if insFull.NetworkInterfaces != nil {
+		netwIfaces := make([]models.NetwIfaceModel, len(insFull.NetworkInterfaces))
+		for i, net := range insFull.NetworkInterfaces {
+			if net.Uuid != nil {
+				netwIfaces[i].UUID = types.StringValue(*net.Uuid)
+				netwIfaces[i].Name = types.StringValue(*net.Uuid) // No name in the response
+			}
+			if net.PrivateIp != nil {
+				netwIfaces[i].PrivateIP = types.StringValue(*net.PrivateIp)
+			}
+			if net.Mac != nil {
+				netwIfaces[i].MAC = types.StringValue(*net.Mac)
+			}
+		}
+		data.NetworkInterfaces, diags = types.ListValueFrom(ctx, models.NetwIfaceModelType, netwIfaces)
+		resp.Diagnostics.Append(diags...)
 	}
-	data.NetworkInterfaces, diags = types.ListValueFrom(ctx, models.NetwIfaceModelType, netwIfaces)
-	resp.Diagnostics.Append(diags...)
 
 	// Save data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -419,7 +455,7 @@ func (r *InstanceResource) Read(ctx context.Context, req resource.ReadRequest, r
 		return
 	}
 
-	insRaw, err := r.client.Get(ctx, data.UUID.ValueString())
+	insResp, err := r.client.GetInstanceByUUID(ctx, data.UUID.ValueString(), true)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Client Error",
@@ -427,7 +463,15 @@ func (r *InstanceResource) Read(ctx context.Context, req resource.ReadRequest, r
 		)
 		return
 	}
-	ins := insRaw.Data.Entries[0]
+
+	if insResp == nil || insResp.Data == nil || len(insResp.Data.Instances) == 0 {
+		resp.Diagnostics.AddError(
+			"Client Error",
+			"Empty response from get instance API",
+		)
+		return
+	}
+	ins := insResp.Data.Instances[0]
 
 	var diags diag.Diagnostics
 
@@ -442,46 +486,75 @@ func (r *InstanceResource) Read(ctx context.Context, req resource.ReadRequest, r
 	//
 	// However, we must still ensure that the Image attribute is populated by
 	// "terraform import".
-	if data.Image.IsNull() {
-		data.Image = types.StringValue(ins.Image)
+	if data.Image.IsNull() && ins.Image != nil {
+		data.Image = types.StringValue(*ins.Image)
 	}
-	data.Name = types.StringValue(ins.Name)
-	if ins.ServiceGroup != nil && len(ins.ServiceGroup.Domains) > 0 {
-		data.FQDN = types.StringValue(ins.ServiceGroup.Domains[0].FQDN)
+	if ins.Name != nil {
+		data.Name = types.StringValue(*ins.Name)
 	}
-	data.PrivateIP = types.StringValue(ins.PrivateIP)
-	data.PrivateFQDN = types.StringValue(ins.PrivateFQDN)
-	data.State = types.StringValue(string(ins.State))
-	data.CreatedAt = types.StringValue(ins.CreatedAt)
-	data.MemoryMB = types.Int64Value(int64(ins.MemoryMB))
-	data.BootTimeUS = types.Int64Value(int64(ins.BootTimeUs))
+	if ins.ServiceGroup != nil && len(ins.ServiceGroup.Domains) > 0 && ins.ServiceGroup.Domains[0].Fqdn != nil {
+		data.FQDN = types.StringValue(*ins.ServiceGroup.Domains[0].Fqdn)
+	}
+	if ins.PrivateFqdn != nil {
+		data.PrivateFQDN = types.StringValue(*ins.PrivateFqdn)
+	}
+	if ins.State != nil {
+		data.State = types.StringValue(string(*ins.State))
+	}
+	if ins.CreatedAt != nil {
+		data.CreatedAt = types.StringValue(ins.CreatedAt.Format("2006-01-02T15:04:05.999999999Z07:00"))
+	}
+	if ins.MemoryMb != nil {
+		data.MemoryMB = types.Int64Value(int64(*ins.MemoryMb))
+	}
+	if ins.BootTimeUs != nil {
+		data.BootTimeUS = types.Int64Value(int64(*ins.BootTimeUs))
+	}
 
 	if data.Args.IsNull() || data.Args.IsUnknown() {
-		data.Args, diags = types.ListValueFrom(ctx, types.StringType, ins.Args)
+		if ins.Args != nil {
+			data.Args, diags = types.ListValueFrom(ctx, types.StringType, ins.Args)
+			resp.Diagnostics.Append(diags...)
+		}
 	}
-	resp.Diagnostics.Append(diags...)
 
-	data.Env, diags = types.MapValueFrom(ctx, types.StringType, ins.Env)
-	resp.Diagnostics.Append(diags...)
+	if ins.Env != nil {
+		data.Env, diags = types.MapValueFrom(ctx, types.StringType, ins.Env)
+		resp.Diagnostics.Append(diags...)
+	}
 
 	if data.ServiceGroup == nil {
 		data.ServiceGroup = &models.SvcGrpModel{}
 	}
 
 	if ins.ServiceGroup != nil {
-		data.ServiceGroup.UUID = types.StringValue(ins.ServiceGroup.UUID)
-		data.ServiceGroup.Name = types.StringValue(ins.ServiceGroup.Name)
+		if ins.ServiceGroup.Uuid != nil {
+			data.ServiceGroup.UUID = types.StringValue(*ins.ServiceGroup.Uuid)
+		}
+		if ins.ServiceGroup.Name != nil {
+			data.ServiceGroup.Name = types.StringValue(*ins.ServiceGroup.Name)
+		}
 	}
 
-	netwIfaces := make([]models.NetwIfaceModel, len(ins.NetworkInterfaces))
-	for i, net := range ins.NetworkInterfaces {
-		netwIfaces[i].UUID = types.StringValue(net.UUID)
-		netwIfaces[i].Name = types.StringValue(net.UUID) // No name in the response
-		netwIfaces[i].PrivateIP = types.StringValue(net.PrivateIP)
-		netwIfaces[i].MAC = types.StringValue(net.MAC)
+	if ins.NetworkInterfaces != nil {
+		netwIfaces := make([]models.NetwIfaceModel, len(ins.NetworkInterfaces))
+		for i, net := range ins.NetworkInterfaces {
+			if net.Uuid != nil {
+				netwIfaces[i].UUID = types.StringValue(*net.Uuid)
+			}
+			if net.Uuid != nil {
+				netwIfaces[i].Name = types.StringValue(*net.Uuid) // No name in the response
+			}
+			if net.PrivateIp != nil {
+				netwIfaces[i].PrivateIP = types.StringValue(*net.PrivateIp)
+			}
+			if net.Mac != nil {
+				netwIfaces[i].MAC = types.StringValue(*net.Mac)
+			}
+		}
+		data.NetworkInterfaces, diags = types.ListValueFrom(ctx, models.NetwIfaceModelType, netwIfaces)
+		resp.Diagnostics.Append(diags...)
 	}
-	data.NetworkInterfaces, diags = types.ListValueFrom(ctx, models.NetwIfaceModelType, netwIfaces)
-	resp.Diagnostics.Append(diags...)
 
 	// Save updated data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -506,11 +579,11 @@ func (r *InstanceResource) Delete(ctx context.Context, req resource.DeleteReques
 		return
 	}
 
-	_, err := r.client.Delete(ctx, data.UUID.ValueString())
+	_, err := r.client.DeleteInstanceByUUID(ctx, data.UUID.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Client Error",
-			fmt.Sprintf("Failed to get delete instance, got error: %v", err),
+			fmt.Sprintf("Failed to delete instance, got error: %v", err),
 		)
 		return
 	}

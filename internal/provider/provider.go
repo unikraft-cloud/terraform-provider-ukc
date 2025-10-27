@@ -17,8 +17,7 @@ import (
 	idatasource "github.com/unikraft-cloud/terraform-provider-unikraft-cloud/internal/provider/datasource"
 	iresource "github.com/unikraft-cloud/terraform-provider-unikraft-cloud/internal/provider/resource"
 
-	unikraftcloud "sdk.kraft.cloud"
-	"sdk.kraft.cloud/client"
+	"unikraft.com/cloud/sdk/platform"
 )
 
 func New(version string) func() provider.Provider {
@@ -111,9 +110,6 @@ func (p *UnikraftCloudProvider) Configure(ctx context.Context, req provider.Conf
 	// configuration values when provided.
 
 	metro := os.Getenv("UKC_METRO")
-	if metro == "" {
-		metro = client.DefaultMetro
-	}
 	if !data.Metro.IsNull() {
 		metro = data.Metro.ValueString()
 	}
@@ -149,21 +145,18 @@ func (p *UnikraftCloudProvider) Configure(ctx context.Context, req provider.Conf
 	}
 
 	// Client configuration for data sources and resources
-	client := unikraftcloud.NewClient(
-		unikraftcloud.WithDefaultMetro(metro),
-		unikraftcloud.WithToken(token),
-	)
-
-	clients := map[string]any{
-		"instances":    client.Instances(),
-		"certificates": client.Certificates(),
-		"volumes":      client.Volumes(),
-		"images":       client.Images(),
-		"metros":       client.Metros(),
-		"services":     client.Services(),
+	var clientOpts []platform.ClientOption
+	if metro != "" {
+		clientOpts = append(clientOpts, platform.WithDefaultMetro(metro))
 	}
-	resp.DataSourceData = client.Instances()
-	resp.ResourceData = clients
+	if token != "" {
+		clientOpts = append(clientOpts, platform.WithToken(token))
+	}
+
+	client := platform.NewClient(clientOpts...)
+
+	resp.DataSourceData = client
+	resp.ResourceData = client
 }
 
 // Resources describes the provider data model.
