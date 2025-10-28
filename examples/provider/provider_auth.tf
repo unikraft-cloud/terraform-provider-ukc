@@ -1,3 +1,3 @@
-provider "unikraft-cloud" {
-  token = "cm9ib3QkbXl1c2VyLnVuaWtyYWZ0LmlvLnVzZXJzLmtyYWZ0Y2xvdWQ6a1I0ZjdFWEFNUExFS0VZ"
+provider "ukc" {
+  token = "dG9rZW4kZXhhbXBsZS51bmlrcmFmdC5pby51c2Vycy5rcmFmdGNsb3VkOmV4YW1wbGVUT0tFTjEyMw=="
 }

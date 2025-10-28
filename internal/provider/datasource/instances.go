@@ -1,7 +1,7 @@
 // Copyright (c) Unikraft GmbH
 // SPDX-License-Identifier: MPL-2.0
 
-package provider
+package datasource
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
-	"sdk.kraft.cloud/instances"
+	"unikraft.com/cloud/sdk/platform"
 )
 
 func NewInstancesDataSource() datasource.DataSource {
@@ -25,7 +25,7 @@ func NewInstancesDataSource() datasource.DataSource {
 
 // InstancesDataSource defines the data source implementation.
 type InstancesDataSource struct {
-	client instances.InstancesService
+	client platform.Client
 }
 
 // Ensure InstancesDataSource satisfies various datasource interfaces.
@@ -82,11 +82,11 @@ func (d *InstancesDataSource) Configure(ctx context.Context, req datasource.Conf
 		return
 	}
 
-	client, ok := req.ProviderData.(instances.InstancesService)
+	client, ok := req.ProviderData.(platform.Client)
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Data Source Configure Type",
-			fmt.Sprintf("Expected instances.InstancesServices, got: %T. Please report this issue to the provider developers.", req.ProviderData),
+			fmt.Sprintf("Expected platform.Client, got: %T. Please report this issue to the provider developers.", req.ProviderData),
 		)
 		return
 	}
@@ -104,7 +104,7 @@ func (d *InstancesDataSource) Read(ctx context.Context, req datasource.ReadReque
 		return
 	}
 
-	instances, err := d.client.List(ctx)
+	insResp, err := d.client.GetInstances(ctx, nil, false)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Client Error",
@@ -112,6 +112,16 @@ func (d *InstancesDataSource) Read(ctx context.Context, req datasource.ReadReque
 		)
 		return
 	}
+
+	if insResp == nil || insResp.Data == nil {
+		resp.Diagnostics.AddError(
+			"Client Error",
+			"Empty response from list instances API",
+		)
+		return
+	}
+
+	instancesList := insResp.Data.Instances
 
 	// FIXME(antoineco): filtering not implemented in SDK.
 	// Implemented client side for the time being (expensive operation).
@@ -122,34 +132,43 @@ func (d *InstancesDataSource) Read(ctx context.Context, req datasource.ReadReque
 			return
 		}
 
-		filteredInstances := instances.Data.Entries[:0]
+		filteredInstances := make([]platform.Instance, 0)
 
-		for _, ins := range instances.Data.Entries {
-			insStat, err := d.client.Get(ctx, ins.UUID)
+		for _, ins := range instancesList {
+			if ins.Uuid == nil {
+				continue
+			}
+			insFullResp, err := d.client.GetInstanceByUUID(ctx, *ins.Uuid, false)
 			if err != nil {
 				resp.Diagnostics.AddError(
 					"Client Error",
-					fmt.Sprintf("Failed to get state of instance %s, got error: %v", ins.UUID, err),
+					fmt.Sprintf("Failed to get state of instance %s, got error: %v", *ins.Uuid, err),
 				)
 				return
+			}
+
+			if insFullResp == nil || insFullResp.Data == nil || len(insFullResp.Data.Instances) == 0 {
+				continue
 			}
 
 			// the number of possible states is small enough that iterating
 			// them for every instance is reasonably cheap
 			for _, st := range stateVals {
-				if insStat.Status == st.ValueString() {
+				if insFullResp.Data.Instances[0].State != nil && string(*insFullResp.Data.Instances[0].State) == st.ValueString() {
 					filteredInstances = append(filteredInstances, ins)
 					break
 				}
 			}
 		}
 
-		instances.Data.Entries = filteredInstances
+		instancesList = filteredInstances
 	}
 
-	uuids := make([]attr.Value, 0, len(instances.Data.Entries))
-	for _, ins := range instances.Data.Entries {
-		uuids = append(uuids, types.StringValue(ins.UUID))
+	uuids := make([]attr.Value, 0, len(instancesList))
+	for _, ins := range instancesList {
+		if ins.Uuid != nil {
+			uuids = append(uuids, types.StringValue(*ins.Uuid))
+		}
 	}
 	var diags diag.Diagnostics
 	data.UUIDs, diags = types.ListValue(types.StringType, uuids)

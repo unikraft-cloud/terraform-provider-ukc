@@ -8,7 +8,7 @@ The Unikraft Cloud provider allows Terraform to manage unikernel instances on Un
 
 ## Usage
 
-Please refer to the [`unikraft-cloud` provider documentation][tfreg-docs] in the Terraform Registry.
+Please refer to the [`ukc` provider documentation][tfreg-docs] in the Terraform Registry.
 
 ## Development
 
@@ -20,7 +20,7 @@ into the [Custom Framework Providers tutorial][tffw-tuto] on the HashiCorp Devel
 ### Requirements
 
 - [Terraform][tf-dl] >= 1.4
-- [Go][go-dl] >= 1.21
+- [Go][go-dl] >= 1.24
 
 ### Local Installation
 
@@ -35,7 +35,7 @@ provider_installation {
 
   dev_overrides {
       # The value is the path of $GOBIN (or $GOPATH/bin)
-      "unikraft.cloud/dev/unikraft-cloud" = "/home/myuser/go/bin"
+      "unikraft.cloud/dev/ukc" = "/home/myuser/go/bin"
   }
 
   # For all other providers, install them directly from their origin provider
@@ -46,24 +46,24 @@ provider_installation {
 ```
 
 > [!NOTE]
-> We deliberately use the provider address `unikraft.cloud/dev/unikraft-cloud` instead of
-> `registry.terraform.io/unikraft-cloud/unikraft-cloud` in a development context. This allows switching more conveniently
+> We deliberately use the provider address `unikraft.cloud/dev/ukc` instead of
+> `registry.terraform.io/unikraft-cloud/ukc` in a development context. This allows switching more conveniently
 > between the local development build and the release build of this provider.
 
-Terraform will now resolve the provider source `kraft.cloud/dev/unikraft-cloud` to the local development build, instead of
+Terraform will now resolve the provider source `kraft.cloud/dev/ukc` to the local development build, instead of
 the remote provider from the Terraform Registry, such as in the example below:
 
 ```hcl
 terraform {
   required_providers {
-    unikraft-cloud = {
-      source = "kraft.cloud/dev/unikraft-cloud"
+    ukc = {
+      source = "kraft.cloud/dev/ukc"
     }
   }
 }
 ```
 
-### Testing
+<!-- ### Testing
 
 This provider includes [Acceptance Tests][tffw-acc] that perform lifecycle actions using real Terraform configurations,
 against real Unikraft Cloud resources.
@@ -81,7 +81,7 @@ All acceptance tests are run by default. The `TESTARGS` variable can be used to 
 
 ```sh
 make testacc TESTARGS='-run=TestAccInstanceResource'
-```
+``` -->
 
 ### Documentation
 

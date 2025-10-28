@@ -1,7 +1,7 @@
 // Copyright (c) Unikraft GmbH
 // SPDX-License-Identifier: MPL-2.0
 
-package provider
+package datasource
 
 import (
 	"context"
@@ -11,8 +11,9 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	models "github.com/unikraft-cloud/terraform-provider-unikraft-cloud/internal/provider/model"
 
-	"sdk.kraft.cloud/instances"
+	"unikraft.com/cloud/sdk/platform"
 )
 
 func NewInstanceDataSource() datasource.DataSource {
@@ -21,7 +22,7 @@ func NewInstanceDataSource() datasource.DataSource {
 
 // InstanceDataSource defines the data source implementation.
 type InstanceDataSource struct {
-	client instances.InstancesService
+	client platform.Client
 }
 
 // Ensure InstanceDataSource satisfies various datasource interfaces.
@@ -31,19 +32,19 @@ var _ datasource.DataSource = &InstanceDataSource{}
 type InstanceDataSourceModel struct {
 	UUID types.String `tfsdk:"uuid"`
 
-	Name              types.String `tfsdk:"name"`
-	FQDN              types.String `tfsdk:"fqdn"`
-	PrivateIP         types.String `tfsdk:"private_ip"`
-	PrivateFQDN       types.String `tfsdk:"private_fqdn"`
-	State             types.String `tfsdk:"state"`
-	CreatedAt         types.String `tfsdk:"created_at"`
-	Image             types.String `tfsdk:"image"`
-	MemoryMB          types.Int64  `tfsdk:"memory_mb"`
-	Args              types.List   `tfsdk:"args"`
-	Env               types.Map    `tfsdk:"env"`
-	ServiceGroup      *svcGrpModel `tfsdk:"service_group"`
-	NetworkInterfaces types.List   `tfsdk:"network_interfaces"`
-	BootTimeUS        types.Int64  `tfsdk:"boot_time_us"`
+	Name              types.String        `tfsdk:"name"`
+	FQDN              types.String        `tfsdk:"fqdn"`
+	PrivateIP         types.String        `tfsdk:"private_ip"`
+	PrivateFQDN       types.String        `tfsdk:"private_fqdn"`
+	State             types.String        `tfsdk:"state"`
+	CreatedAt         types.String        `tfsdk:"created_at"`
+	Image             types.String        `tfsdk:"image"`
+	MemoryMB          types.Int64         `tfsdk:"memory_mb"`
+	Args              types.List          `tfsdk:"args"`
+	Env               types.Map           `tfsdk:"env"`
+	ServiceGroup      *models.SvcGrpModel `tfsdk:"service_group"`
+	NetworkInterfaces types.List          `tfsdk:"network_interfaces"`
+	BootTimeUS        types.Int64         `tfsdk:"boot_time_us"`
 }
 
 // Metadata implements datasource.DataSource.
@@ -156,11 +157,11 @@ func (d *InstanceDataSource) Configure(ctx context.Context, req datasource.Confi
 		return
 	}
 
-	client, ok := req.ProviderData.(instances.InstancesService)
+	client, ok := req.ProviderData.(platform.Client)
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Data Source Configure Type",
-			fmt.Sprintf("Expected instances.InstancesServices, got: %T. Please report this issue to the provider developers.", req.ProviderData),
+			fmt.Sprintf("Expected platform.Client, got: %T. Please report this issue to the provider developers.", req.ProviderData),
 		)
 		return
 	}
@@ -178,7 +179,7 @@ func (d *InstanceDataSource) Read(ctx context.Context, req datasource.ReadReques
 		return
 	}
 
-	insRaw, err := d.client.Get(ctx, data.UUID.ValueString())
+	insResp, err := d.client.GetInstanceByUUID(ctx, data.UUID.ValueString(), true)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Client Error",
@@ -186,57 +187,86 @@ func (d *InstanceDataSource) Read(ctx context.Context, req datasource.ReadReques
 		)
 		return
 	}
-	ins := insRaw.Data.Entries[0]
+
+	if insResp == nil || insResp.Data == nil || len(insResp.Data.Instances) == 0 {
+		resp.Diagnostics.AddError(
+			"Client Error",
+			"Empty response from get instance API",
+		)
+		return
+	}
+	ins := insResp.Data.Instances[0]
 
 	var diags diag.Diagnostics
 
-	data.Name = types.StringValue(ins.Name)
-	if ins.ServiceGroup != nil && len(ins.ServiceGroup.Domains) > 0 {
-		data.FQDN = types.StringValue(ins.ServiceGroup.Domains[0].FQDN)
+	if ins.Name != nil {
+		data.Name = types.StringValue(*ins.Name)
 	}
-	data.PrivateIP = types.StringValue(ins.PrivateIP)
-	data.PrivateFQDN = types.StringValue(ins.PrivateFQDN)
-	data.State = types.StringValue(string(ins.State))
-	data.CreatedAt = types.StringValue(ins.CreatedAt)
-	data.Image = types.StringValue(ins.Image)
-	data.MemoryMB = types.Int64Value(int64(ins.MemoryMB))
-	data.BootTimeUS = types.Int64Value(int64(ins.BootTimeUs))
+	if ins.ServiceGroup != nil && len(ins.ServiceGroup.Domains) > 0 && ins.ServiceGroup.Domains[0].Fqdn != nil {
+		data.FQDN = types.StringValue(*ins.ServiceGroup.Domains[0].Fqdn)
+	}
+	if ins.PrivateFqdn != nil {
+		data.PrivateFQDN = types.StringValue(*ins.PrivateFqdn)
+	}
+	if ins.State != nil {
+		data.State = types.StringValue(string(*ins.State))
+	}
+	if ins.CreatedAt != nil {
+		data.CreatedAt = types.StringValue(ins.CreatedAt.Format("2006-01-02T15:04:05.999999999Z07:00"))
+	}
+	if ins.Image != nil {
+		data.Image = types.StringValue(*ins.Image)
+	}
+	if ins.MemoryMb != nil {
+		data.MemoryMB = types.Int64Value(int64(*ins.MemoryMb))
+	}
+	if ins.BootTimeUs != nil {
+		data.BootTimeUS = types.Int64Value(int64(*ins.BootTimeUs))
+	}
 
-	data.Args, diags = types.ListValueFrom(ctx, types.StringType, ins.Args)
-	resp.Diagnostics.Append(diags...)
+	if ins.Args != nil {
+		data.Args, diags = types.ListValueFrom(ctx, types.StringType, ins.Args)
+		resp.Diagnostics.Append(diags...)
+	}
 
-	data.Env, diags = types.MapValueFrom(ctx, types.StringType, ins.Env)
-	resp.Diagnostics.Append(diags...)
+	if ins.Env != nil {
+		data.Env, diags = types.MapValueFrom(ctx, types.StringType, ins.Env)
+		resp.Diagnostics.Append(diags...)
+	}
 
 	if ins.ServiceGroup != nil {
-		data.ServiceGroup = &svcGrpModel{
-			UUID:     types.StringValue(ins.ServiceGroup.UUID),
-			Name:     types.StringValue(ins.ServiceGroup.Name),
-			Services: make([]svcModel, len(ins.ServiceGroup.Domains)),
+		sgModel := &models.SvcGrpModel{}
+		if ins.ServiceGroup.Uuid != nil {
+			sgModel.UUID = types.StringValue(*ins.ServiceGroup.Uuid)
 		}
+		if ins.ServiceGroup.Name != nil {
+			sgModel.Name = types.StringValue(*ins.ServiceGroup.Name)
+		}
+		// Note: InstanceServiceGroup only contains Uuid, Name, and Domains
+		// Services are exposed through the Domains field
+		sgModel.Services = []models.SvcModel{}
+		data.ServiceGroup = sgModel
 	} else {
-		data.ServiceGroup = &svcGrpModel{}
+		data.ServiceGroup = &models.SvcGrpModel{}
 	}
 
-	// TODO(craciunoiuc): Find out how this should be accessed now
-	// for i, svc := range ins.ServiceGroup.Domains {
-	// 	data.ServiceGroup.Services[i] = svcModel{
-	// 		Port:            types.Int64Value(int64(svc.Port)),
-	// 		DestinationPort: types.Int64Value(int64(svc.DestinationPort)),
-	// 	}
-	// 	data.ServiceGroup.Services[i].Handlers, diags = types.SetValueFrom(ctx, types.StringType, svc.Handlers)
-	// 	resp.Diagnostics.Append(diags...)
-	// }
-
-	netwIfaces := make([]netwIfaceModel, len(ins.NetworkInterfaces))
-	for i, net := range ins.NetworkInterfaces {
-		netwIfaces[i].UUID = types.StringValue(net.UUID)
-		netwIfaces[i].Name = types.StringValue(net.UUID) // No name in the API response
-		netwIfaces[i].PrivateIP = types.StringValue(net.PrivateIP)
-		netwIfaces[i].MAC = types.StringValue(net.MAC)
+	if ins.NetworkInterfaces != nil {
+		netwIfaces := make([]models.NetwIfaceModel, len(ins.NetworkInterfaces))
+		for i, net := range ins.NetworkInterfaces {
+			if net.Uuid != nil {
+				netwIfaces[i].UUID = types.StringValue(*net.Uuid)
+				netwIfaces[i].Name = types.StringValue(*net.Uuid) // No name in the API response
+			}
+			if net.PrivateIp != nil {
+				netwIfaces[i].PrivateIP = types.StringValue(*net.PrivateIp)
+			}
+			if net.Mac != nil {
+				netwIfaces[i].MAC = types.StringValue(*net.Mac)
+			}
+		}
+		data.NetworkInterfaces, diags = types.ListValueFrom(ctx, models.NetwIfaceModelType, netwIfaces)
+		resp.Diagnostics.Append(diags...)
 	}
-	data.NetworkInterfaces, diags = types.ListValueFrom(ctx, netwIfaceModelType, netwIfaces)
-	resp.Diagnostics.Append(diags...)
 
 	// Save data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)

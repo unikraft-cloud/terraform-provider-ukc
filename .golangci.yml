@@ -1,6 +1,14 @@
+# Copyright (c) Unikraft GmbH
+# SPDX-License-Identifier: MPL-2.0
+
+version: "2"
+
 linters:
   enable:
     - unparam
     - misspell
+    - staticcheck
+
+formatters:
+  enable:
     - gofumpt
-    - stylecheck

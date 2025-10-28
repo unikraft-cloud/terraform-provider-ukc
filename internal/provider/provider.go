@@ -14,8 +14,10 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
-	unikraftcloud "sdk.kraft.cloud"
-	"sdk.kraft.cloud/client"
+	idatasource "github.com/unikraft-cloud/terraform-provider-unikraft-cloud/internal/provider/datasource"
+	iresource "github.com/unikraft-cloud/terraform-provider-unikraft-cloud/internal/provider/resource"
+
+	"unikraft.com/cloud/sdk/platform"
 )
 
 func New(version string) func() provider.Provider {
@@ -45,7 +47,7 @@ type UnikraftCloudModel struct {
 
 // Metadata implements provider.Provider.
 func (p *UnikraftCloudProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
-	resp.TypeName = "unikraft-cloud"
+	resp.TypeName = "ukc"
 	resp.Version = p.version
 }
 
@@ -108,9 +110,6 @@ func (p *UnikraftCloudProvider) Configure(ctx context.Context, req provider.Conf
 	// configuration values when provided.
 
 	metro := os.Getenv("UKC_METRO")
-	if metro == "" {
-		metro = client.DefaultMetro
-	}
 	if !data.Metro.IsNull() {
 		metro = data.Metro.ValueString()
 	}
@@ -146,26 +145,32 @@ func (p *UnikraftCloudProvider) Configure(ctx context.Context, req provider.Conf
 	}
 
 	// Client configuration for data sources and resources
-	client := unikraftcloud.NewClient(
-		unikraftcloud.WithDefaultMetro(metro),
-		unikraftcloud.WithToken(token),
-	)
+	var clientOpts []platform.ClientOption
+	if metro != "" {
+		clientOpts = append(clientOpts, platform.WithDefaultMetro(metro))
+	}
+	if token != "" {
+		clientOpts = append(clientOpts, platform.WithToken(token))
+	}
 
-	resp.DataSourceData = client.Instances()
-	resp.ResourceData = client.Instances()
+	client := platform.NewClient(clientOpts...)
+
+	resp.DataSourceData = client
+	resp.ResourceData = client
 }
 
 // Resources describes the provider data model.
 func (p *UnikraftCloudProvider) Resources(ctx context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
-		NewInstanceResource,
+		iresource.NewInstanceResource,
+		iresource.NewCertificateResource,
 	}
 }
 
 // DataSources describes the provider data model.
 func (p *UnikraftCloudProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
-		NewInstanceDataSource,
-		NewInstancesDataSource,
+		idatasource.NewInstanceDataSource,
+		idatasource.NewInstancesDataSource,
 	}
 }
