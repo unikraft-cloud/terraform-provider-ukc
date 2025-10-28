@@ -593,5 +593,3 @@ func (r *InstanceResource) Delete(ctx context.Context, req resource.DeleteReques
 func (r *InstanceResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	resource.ImportStatePassthroughID(ctx, path.Root("uuid"), req, resp)
 }
-
-func ptr[T comparable](v T) *T { return &v }
