@@ -8,6 +8,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+	"github.com/unikraft-cloud/terraform-provider-ukc/internal/config"
 )
 
 func Provider() *schema.Provider {
@@ -43,7 +44,7 @@ func New() provider.Provider {
 
 func (p *ukcProvider) Metadata(_ context.Context, _ provider.MetadataRequest, resp *provider.MetadataResponse) {
 	resp.TypeName = "ukc"
-	//resp.Version = config.Version
+	resp.Version = config.Version
 }
 
 func (p *ukcProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
