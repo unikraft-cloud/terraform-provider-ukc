@@ -1,4 +1,4 @@
-module github.com/unikraft-cloud/terraform-provider-unikraft-cloud
+module github.com/unikraft-cloud/terraform-provider-ukc
 
 go 1.25.3
 
