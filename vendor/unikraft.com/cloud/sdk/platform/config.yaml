@@ -1,0 +1,14 @@
+additionalProperties:
+  packageName: platform
+  packageVersion: 0.1.0
+  generateInterfaces: true
+files:
+  response.handlebars:
+    templateType: SupportingFiles
+    destinationFilename: response.go
+  request.handlebars:
+    templateType: SupportingFiles
+    destinationFilename: request.go
+  client_options.handlebars:
+    templateType: SupportingFiles
+    destinationFilename: client_options.go

@@ -1,0 +1,16 @@
+git_push.sh
+.travis.yml
+README.md
+docs/
+test/
+api/
+utils.go
+configuration.go
+defaults.go
+stop_reason.go
+errnos.go
+go.mod
+go.sum
+api_*
+.gitignore
+*all_of.go
