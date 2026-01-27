@@ -32,6 +32,12 @@ fmt: ## Format Go code with gofumpt
 tidy: ## Run go mod tidy
 	@go mod tidy
 
+##@ Documentation
+
+.PHONY: docs
+docs: ## Generate provider documentation
+	@go run github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs generate --provider-name ukc
+
 ##@ Testing
 
 .PHONY: test
