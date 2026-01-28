@@ -8,10 +8,8 @@ require (
 	github.com/hashicorp/terraform-plugin-framework-validators v0.19.0
 	github.com/hashicorp/terraform-plugin-go v0.29.0
 	github.com/stretchr/testify v1.11.1
-	unikraft.com/cloud/sdk v0.0.0-00010101000000-000000000000
+	unikraft.com/cloud/sdk v0.1.0
 )
-
-replace unikraft.com/cloud/sdk => github.com/unikraft-cloud/go-sdk v0.1.1-0.20251015113626-3393d6ed91e2
 
 require (
 	github.com/BurntSushi/toml v1.2.1 // indirect
