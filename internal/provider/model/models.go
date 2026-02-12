@@ -64,3 +64,18 @@ var VolumeInstanceModelType = types.ObjectType{
 		"name": types.StringType,
 	},
 }
+
+// VolumeMountModel describes the data model for an instance that has mounted a volume.
+type VolumeMountModel struct {
+	UUID     types.String `tfsdk:"uuid"`
+	Name     types.String `tfsdk:"name"`
+	ReadOnly types.Bool   `tfsdk:"read_only"`
+}
+
+var VolumeMountModelType = types.ObjectType{
+	AttrTypes: map[string]attr.Type{
+		"uuid":      types.StringType,
+		"name":      types.StringType,
+		"read_only": types.BoolType,
+	},
+}
