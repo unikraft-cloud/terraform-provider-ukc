@@ -75,3 +75,37 @@ func (m *PlatformClient) DeleteCertificateByUUID(ctx context.Context, uuid strin
 	}
 	return args.Get(0).(*platform.Response[platform.DeleteCertificatesResponseData]), args.Error(1)
 }
+
+// Volume methods
+
+func (m *PlatformClient) CreateVolume(ctx context.Context, req platform.CreateVolumeRequest, ropts ...platform.RequestOption) (*platform.Response[platform.CreateVolumeResponseData], error) {
+	args := m.Called(ctx, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*platform.Response[platform.CreateVolumeResponseData]), args.Error(1)
+}
+
+func (m *PlatformClient) GetVolumeByUUID(ctx context.Context, uuid string, details bool, ropts ...platform.RequestOption) (*platform.Response[platform.GetVolumesResponseData], error) {
+	args := m.Called(ctx, uuid, details)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*platform.Response[platform.GetVolumesResponseData]), args.Error(1)
+}
+
+func (m *PlatformClient) DeleteVolumeByUUID(ctx context.Context, uuid string, ropts ...platform.RequestOption) (*platform.Response[platform.DeleteVolumesResponseData], error) {
+	args := m.Called(ctx, uuid)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*platform.Response[platform.DeleteVolumesResponseData]), args.Error(1)
+}
+
+func (m *PlatformClient) UpdateVolumeByUUID(ctx context.Context, uuid string, request platform.UpdateVolumeByUUIDRequestBody, ropts ...platform.RequestOption) (*platform.Response[platform.UpdateVolumesResponseData], error) {
+	args := m.Called(ctx, uuid, request)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*platform.Response[platform.UpdateVolumesResponseData]), args.Error(1)
+}
