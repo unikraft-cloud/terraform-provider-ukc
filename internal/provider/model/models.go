@@ -51,3 +51,31 @@ type certificateModel struct {
 	Name  types.String `tfsdk:"name"`
 	State types.String `tfsdk:"state"`
 }
+
+// VolumeInstanceModel describes the data model for an instance attached to a volume.
+type VolumeInstanceModel struct {
+	UUID types.String `tfsdk:"uuid"`
+	Name types.String `tfsdk:"name"`
+}
+
+var VolumeInstanceModelType = types.ObjectType{
+	AttrTypes: map[string]attr.Type{
+		"uuid": types.StringType,
+		"name": types.StringType,
+	},
+}
+
+// VolumeMountModel describes the data model for a volume mount.
+type VolumeMountModel struct {
+	UUID     types.String `tfsdk:"uuid"`
+	Name     types.String `tfsdk:"name"`
+	ReadOnly types.Bool   `tfsdk:"read_only"`
+}
+
+var VolumeMountModelType = types.ObjectType{
+	AttrTypes: map[string]attr.Type{
+		"uuid":      types.StringType,
+		"name":      types.StringType,
+		"read_only": types.BoolType,
+	},
+}
