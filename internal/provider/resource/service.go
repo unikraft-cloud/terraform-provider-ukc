@@ -16,7 +16,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
-"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/setplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
@@ -44,11 +44,11 @@ var (
 // ServiceResourceModel describes the resource data model.
 type ServiceResourceModel struct {
 	// Configurable (user inputs)
-	Name      types.String    `tfsdk:"name"`
-	Services  []models.SvcModel `tfsdk:"services"`
+	Name      types.String              `tfsdk:"name"`
+	Services  []models.SvcModel         `tfsdk:"services"`
 	Domains   []ServiceDomainInputModel `tfsdk:"domains"`
-	SoftLimit types.Int64     `tfsdk:"soft_limit"`
-	HardLimit types.Int64     `tfsdk:"hard_limit"`
+	SoftLimit types.Int64               `tfsdk:"soft_limit"`
+	HardLimit types.Int64               `tfsdk:"hard_limit"`
 
 	// Computed (API-populated)
 	UUID       types.String `tfsdk:"uuid"`
@@ -57,8 +57,8 @@ type ServiceResourceModel struct {
 	Autoscale  types.Bool   `tfsdk:"autoscale"`
 
 	// Computed nested lists
-	ComputedDomains  types.List `tfsdk:"computed_domains"`
-	Instances        types.List `tfsdk:"instances"`
+	ComputedDomains types.List `tfsdk:"computed_domains"`
+	Instances       types.List `tfsdk:"instances"`
 }
 
 // ServiceDomainInputModel describes a domain input for service group creation.
