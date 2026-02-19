@@ -50,6 +50,24 @@ func (m *PlatformClient) DeleteInstanceByUUID(ctx context.Context, uuid string, 
 	return args.Get(0).(*platform.Response[platform.DeleteInstancesResponseData]), args.Error(1)
 }
 
+// Service group methods
+
+func (m *PlatformClient) GetServiceGroupByUUID(ctx context.Context, uuid string, details bool, ropts ...platform.RequestOption) (*platform.Response[platform.GetServiceGroupsResponseData], error) {
+	args := m.Called(ctx, uuid, details)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*platform.Response[platform.GetServiceGroupsResponseData]), args.Error(1)
+}
+
+func (m *PlatformClient) GetServiceGroups(ctx context.Context, request []platform.NameOrUUID, details bool, ropts ...platform.RequestOption) (*platform.Response[platform.GetServiceGroupsResponseData], error) {
+	args := m.Called(ctx, request, details)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*platform.Response[platform.GetServiceGroupsResponseData]), args.Error(1)
+}
+
 // Certificate methods
 
 func (m *PlatformClient) CreateCertificate(ctx context.Context, req platform.CreateCertificateRequest, ropts ...platform.RequestOption) (*platform.Response[platform.CreateCertificateResponseData], error) {

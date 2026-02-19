@@ -52,6 +52,37 @@ type certificateModel struct {
 	State types.String `tfsdk:"state"`
 }
 
+// SvcModelType is the object type for SvcModel, used with types.ListValueFrom.
+var SvcModelType = types.ObjectType{
+	AttrTypes: map[string]attr.Type{
+		"port":             types.Int64Type,
+		"destination_port": types.Int64Type,
+		"handlers":         types.SetType{ElemType: types.StringType},
+	},
+}
+
+// ServiceGroupCertAttrTypes are the attribute types for a certificate nested
+// inside a service group domain.
+var ServiceGroupCertAttrTypes = map[string]attr.Type{
+	"uuid":  types.StringType,
+	"name":  types.StringType,
+	"state": types.StringType,
+}
+
+// ServiceGroupDomainModel describes the data model for a service group domain.
+type ServiceGroupDomainModel struct {
+	FQDN        types.String `tfsdk:"fqdn"`
+	Certificate types.Object `tfsdk:"certificate"`
+}
+
+// ServiceGroupDomainModelType is the object type for ServiceGroupDomainModel.
+var ServiceGroupDomainModelType = types.ObjectType{
+	AttrTypes: map[string]attr.Type{
+		"fqdn":        types.StringType,
+		"certificate": types.ObjectType{AttrTypes: ServiceGroupCertAttrTypes},
+	},
+}
+
 // VolumeInstanceModel describes the data model for an instance attached to a volume.
 type VolumeInstanceModel struct {
 	UUID types.String `tfsdk:"uuid"`

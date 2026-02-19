@@ -172,6 +172,8 @@ func (p *UnikraftCloudProvider) DataSources(ctx context.Context) []func() dataso
 	return []func() datasource.DataSource{
 		idatasource.NewInstanceDataSource,
 		idatasource.NewInstancesDataSource,
+		idatasource.NewServiceDataSource,
+		idatasource.NewServicesDataSource,
 		idatasource.NewVolumeDataSource,
 		idatasource.NewVolumesDataSource,
 	}
