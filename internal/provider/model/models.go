@@ -79,3 +79,42 @@ var VolumeMountModelType = types.ObjectType{
 		"read_only": types.BoolType,
 	},
 }
+
+// ServiceGroupDomainModel describes the data model for a service group's domain.
+type ServiceGroupDomainModel struct {
+	FQDN        types.String                        `tfsdk:"fqdn"`
+	Certificate *ServiceGroupDomainCertificateModel `tfsdk:"certificate"`
+}
+
+// ServiceGroupDomainCertificateModel describes the data model for a domain's certificate.
+type ServiceGroupDomainCertificateModel struct {
+	UUID types.String `tfsdk:"uuid"`
+	Name types.String `tfsdk:"name"`
+}
+
+var ServiceGroupDomainCertificateModelType = types.ObjectType{
+	AttrTypes: map[string]attr.Type{
+		"uuid": types.StringType,
+		"name": types.StringType,
+	},
+}
+
+var ServiceGroupDomainModelType = types.ObjectType{
+	AttrTypes: map[string]attr.Type{
+		"fqdn":        types.StringType,
+		"certificate": ServiceGroupDomainCertificateModelType,
+	},
+}
+
+// ServiceGroupInstanceModel describes the data model for an instance attached to a service group.
+type ServiceGroupInstanceModel struct {
+	UUID types.String `tfsdk:"uuid"`
+	Name types.String `tfsdk:"name"`
+}
+
+var ServiceGroupInstanceModelType = types.ObjectType{
+	AttrTypes: map[string]attr.Type{
+		"uuid": types.StringType,
+		"name": types.StringType,
+	},
+}
